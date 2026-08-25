@@ -19,6 +19,7 @@ import {
   calculateTenYearData,
   CalculationMethod,
   CleaningFrequency,
+  CleaningTask,
   DEFAULT_HOURLY_WAGE,
   FacilityRecommendation,
   HandlerRecommendation,
@@ -30,6 +31,7 @@ import {
   recommendHandlerRobot,
   RobotCategory,
   savingsAtYear,
+  SpaceHazard,
 } from '@/lib/calculations'
 
 const GREEN = '#00BF63'
@@ -103,10 +105,12 @@ export default function Home() {
 
   const [inflationRate, setInflationRate] = useState(3.5)
 
-  const [taskType, setTaskType] = useState<RobotCategory>('facility')
+  const [taskType, setTaskType] = useState<RobotCategory | null>(null)
 
   const [facilitySqft, setFacilitySqft] = useState('')
   const [cleaningFrequency, setCleaningFrequency] = useState<CleaningFrequency>('weekly')
+  const [cleaningTasks, setCleaningTasks] = useState<CleaningTask[]>([])
+  const [spaceHazards, setSpaceHazards] = useState<SpaceHazard[]>([])
 
   const [payloadKg, setPayloadKg] = useState('')
   const [tripsPerDay, setTripsPerDay] = useState('')
@@ -130,10 +134,22 @@ export default function Home() {
     setStep(n)
   }
 
-  function selectMethod(m: CalculationMethod) {
-    setMethod(m)
+  function selectTaskType(t: RobotCategory) {
+    setTaskType(t)
     goTo(2, 'forward')
   }
+
+  function selectMethod(m: CalculationMethod) {
+    setMethod(m)
+    goTo(3, 'forward')
+  }
+
+  // Don't ask for square footage twice — if they already gave it for the
+  // "I know my square footage" labour-cost method, reuse it as the facility
+  // size default (still editable in the field, in case the cleaned area
+  // differs from the billed area).
+  const effectiveFacilitySqft =
+    facilitySqft || (method === 'sqft' && taskType === 'facility' ? sqft : '')
 
   const monthlyLabourCost = (() => {
     if (!method) return 0
@@ -177,7 +193,7 @@ export default function Home() {
 
   const facilityRecommendation: FacilityRecommendation | null =
     taskType === 'facility'
-      ? recommendFacilityRobot(parseFloat(facilitySqft) || 0, cleaningFrequency)
+      ? recommendFacilityRobot(parseFloat(effectiveFacilitySqft) || 0, cleaningFrequency, cleaningTasks, spaceHazards)
       : null
 
   const handlerRecommendation: HandlerRecommendation | null =
@@ -193,7 +209,7 @@ export default function Home() {
       : null
 
   const hasRecommendationInput =
-    taskType === 'facility' ? parseFloat(facilitySqft) > 0 : parseFloat(payloadKg) > 0
+    taskType === 'facility' ? parseFloat(effectiveFacilitySqft) > 0 : parseFloat(payloadKg) > 0
 
   const recommendedModel = facilityRecommendation?.model ?? handlerRecommendation?.model ?? null
   const recommendedUnits = facilityRecommendation?.units ?? handlerRecommendation?.units ?? 0
@@ -366,7 +382,7 @@ export default function Home() {
       >
         <div className="max-w-3xl mx-auto px-6 py-4">
           <div className="flex items-center gap-2 mb-2">
-            {[1, 2, 3, 4, 5].map((n) => (
+            {[1, 2, 3, 4, 5, 6].map((n) => (
               <div
                 key={n}
                 className="flex-1 h-1.5 rounded-full transition-colors"
@@ -375,7 +391,7 @@ export default function Home() {
             ))}
           </div>
           <p className="text-xs" style={{ color: TEXT_SECONDARY }}>
-            Step {step} of 5
+            Step {step} of 6
           </p>
         </div>
       </div>
@@ -385,18 +401,23 @@ export default function Home() {
         <div className="max-w-4xl mx-auto">
           {step > 1 && (
             <div className="max-w-[640px] mx-auto flex flex-col gap-2 mb-8">
-              {method && (
+              {taskType && (
                 <SummaryLine onClick={() => goTo(1, 'back')}>
+                  {taskType === 'facility' ? 'Facility cleaning' : 'Material handling'}
+                </SummaryLine>
+              )}
+              {step > 2 && method && (
+                <SummaryLine onClick={() => goTo(2, 'back')}>
                   {METHOD_TITLES[method]}
                 </SummaryLine>
               )}
-              {step > 2 && hasResult && (
-                <SummaryLine onClick={() => goTo(2, 'back')}>
+              {step > 3 && hasResult && (
+                <SummaryLine onClick={() => goTo(3, 'back')}>
                   Estimated cost: {currency(monthlyLabourCost, 2)}/mo
                 </SummaryLine>
               )}
-              {step > 3 && (
-                <SummaryLine onClick={() => goTo(3, 'back')}>
+              {step > 4 && (
+                <SummaryLine onClick={() => goTo(4, 'back')}>
                   {inflationRate}% inflation ·{' '}
                   {hasConfidentRecommendation
                     ? `${recommendedUnits}x ${recommendedModel}`
@@ -406,8 +427,8 @@ export default function Home() {
                   · {maintenanceTier === 'standard' ? 'Standard' : 'Heavy duty'} maintenance
                 </SummaryLine>
               )}
-              {step > 4 && (
-                <SummaryLine onClick={() => goTo(4, 'back')}>
+              {step > 5 && (
+                <SummaryLine onClick={() => goTo(5, 'back')}>
                   10-year savings: {currency(tenYearSavings)}
                 </SummaryLine>
               )}
@@ -416,13 +437,15 @@ export default function Home() {
 
           <div className="overflow-hidden">
             <div key={step} className={direction === 'forward' ? 'rr-anim-forward' : 'rr-anim-back'}>
-              {step === 1 && <Step1 onSelect={selectMethod} />}
+              {step === 1 && <StepTaskType onSelect={selectTaskType} />}
 
-              {step === 2 && method && (
+              {step === 2 && <Step1 onSelect={selectMethod} onBack={() => goTo(1, 'back')} />}
+
+              {step === 3 && method && (
                 <Step2
                   method={method}
-                  onBack={() => goTo(1, 'back')}
-                  onNext={() => goTo(3, 'forward')}
+                  onBack={() => goTo(2, 'back')}
+                  onNext={() => goTo(4, 'forward')}
                   hasResult={hasResult}
                   monthlyLabourCost={monthlyLabourCost}
                   monthlyHours={monthlyHours}
@@ -444,18 +467,21 @@ export default function Home() {
                 />
               )}
 
-              {step === 3 && (
+              {step === 4 && taskType && (
                 <Step3
-                  onBack={() => goTo(2, 'back')}
-                  onNext={() => goTo(4, 'forward')}
+                  onBack={() => goTo(3, 'back')}
+                  onNext={() => goTo(5, 'forward')}
                   inflationRate={inflationRate}
                   setInflationRate={setInflationRate}
                   taskType={taskType}
-                  setTaskType={setTaskType}
-                  facilitySqft={facilitySqft}
+                  facilitySqft={effectiveFacilitySqft}
                   setFacilitySqft={setFacilitySqft}
                   cleaningFrequency={cleaningFrequency}
                   setCleaningFrequency={setCleaningFrequency}
+                  cleaningTasks={cleaningTasks}
+                  setCleaningTasks={setCleaningTasks}
+                  spaceHazards={spaceHazards}
+                  setSpaceHazards={setSpaceHazards}
                   payloadKg={payloadKg}
                   setPayloadKg={setPayloadKg}
                   tripsPerDay={tripsPerDay}
@@ -476,10 +502,10 @@ export default function Home() {
                 />
               )}
 
-              {step === 4 && (
+              {step === 5 && (
                 <Step4
-                  onBack={() => goTo(3, 'back')}
-                  onNext={() => goTo(5, 'forward')}
+                  onBack={() => goTo(4, 'back')}
+                  onNext={() => goTo(6, 'forward')}
                   monthlyLabourCost={monthlyLabourCost}
                   oneYearSavings={oneYearSavings}
                   fiveYearSavings={fiveYearSavings}
@@ -491,9 +517,9 @@ export default function Home() {
                 />
               )}
 
-              {step === 5 && (
+              {step === 6 && (
                 <Step5
-                  onBack={() => goTo(4, 'back')}
+                  onBack={() => goTo(5, 'back')}
                   monthlyLabourCost={monthlyLabourCost}
                   tenYearSavings={tenYearSavings}
                   breakEvenYear={breakEvenYear}
@@ -521,9 +547,49 @@ export default function Home() {
 
 /* ---------------------------------- Step 1 --------------------------------- */
 
-function Step1({ onSelect }: { onSelect: (m: CalculationMethod) => void }) {
+/* ------------------------------ Step: Task Type ---------------------------- */
+
+function StepTaskType({ onSelect }: { onSelect: (t: RobotCategory) => void }) {
   return (
     <div className="max-w-[640px] mx-auto">
+      <h2 className="font-heading text-white text-3xl mb-3">What kind of task?</h2>
+      <p className="mb-10" style={{ color: TEXT_SECONDARY }}>
+        This decides which Reliable Robots products fit your operation.
+      </p>
+
+      <div className="flex flex-col gap-4">
+        <button
+          type="button"
+          onClick={() => onSelect('facility')}
+          className="w-full h-[72px] flex items-center justify-between rounded-xl px-5 border border-white/10 bg-white/[0.04] hover:border-[#00BF63] hover:bg-[#00BF63]/[0.06] transition-colors cursor-pointer"
+        >
+          <span className="text-white text-base font-medium text-left">Facility cleaning</span>
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path d="M7.5 15L12.5 10L7.5 5" stroke="rgba(255,255,255,0.4)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={() => onSelect('handler')}
+          className="w-full h-[72px] flex items-center justify-between rounded-xl px-5 border border-white/10 bg-white/[0.04] hover:border-[#00BF63] hover:bg-[#00BF63]/[0.06] transition-colors cursor-pointer"
+        >
+          <span className="text-white text-base font-medium text-left">Material handling</span>
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <path d="M7.5 15L12.5 10L7.5 5" stroke="rgba(255,255,255,0.4)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/* ---------------------------------- Step 1 --------------------------------- */
+
+function Step1({ onSelect, onBack }: { onSelect: (m: CalculationMethod) => void; onBack: () => void }) {
+  return (
+    <div className="max-w-[640px] mx-auto">
+      <BackLink onClick={onBack} />
+
       <h2 className="font-heading text-white text-3xl mb-3">How do you know your labour costs?</h2>
       <p className="mb-10" style={{ color: TEXT_SECONDARY }}>
         Pick the option closest to how you think about it.
@@ -738,11 +804,14 @@ function Step3({
   inflationRate,
   setInflationRate,
   taskType,
-  setTaskType,
   facilitySqft,
   setFacilitySqft,
   cleaningFrequency,
   setCleaningFrequency,
+  cleaningTasks,
+  setCleaningTasks,
+  spaceHazards,
+  setSpaceHazards,
   payloadKg,
   setPayloadKg,
   tripsPerDay,
@@ -766,11 +835,14 @@ function Step3({
   inflationRate: number
   setInflationRate: (v: number) => void
   taskType: RobotCategory
-  setTaskType: (v: RobotCategory) => void
   facilitySqft: string
   setFacilitySqft: (v: string) => void
   cleaningFrequency: CleaningFrequency
   setCleaningFrequency: (v: CleaningFrequency) => void
+  cleaningTasks: CleaningTask[]
+  setCleaningTasks: (v: CleaningTask[]) => void
+  spaceHazards: SpaceHazard[]
+  setSpaceHazards: (v: SpaceHazard[]) => void
   payloadKg: string
   setPayloadKg: (v: string) => void
   tripsPerDay: string
@@ -789,6 +861,13 @@ function Step3({
   maintenanceTier: MaintenanceTier
   setMaintenanceTier: (v: MaintenanceTier) => void
 }) {
+  function toggleTask(t: CleaningTask) {
+    setCleaningTasks(cleaningTasks.includes(t) ? cleaningTasks.filter((x) => x !== t) : [...cleaningTasks, t])
+  }
+  function toggleHazard(h: SpaceHazard) {
+    setSpaceHazards(spaceHazards.includes(h) ? spaceHazards.filter((x) => x !== h) : [...spaceHazards, h])
+  }
+
   return (
     <div className="max-w-[640px] mx-auto">
       <BackLink onClick={onBack} />
@@ -818,27 +897,6 @@ function Step3({
           </p>
         </div>
 
-        <div className="rounded-xl p-6" style={{ backgroundColor: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
-          <p className="text-white font-medium mb-4">What kind of task?</p>
-          <div className="flex gap-3 mb-2">
-            <Pill
-              label="Facility coverage"
-              selected={taskType === 'facility'}
-              onClick={() => setTaskType('facility')}
-            />
-            <Pill
-              label="Material handling"
-              selected={taskType === 'handler'}
-              onClick={() => setTaskType('handler')}
-            />
-          </div>
-          <p className="text-xs" style={{ color: TEXT_SECONDARY }}>
-            {taskType === 'facility'
-              ? 'Sized by square footage and cleaning frequency.'
-              : 'Sized by payload weight and cycle time.'}
-          </p>
-        </div>
-
         {taskType === 'facility' ? (
           <div className="rounded-xl p-6 flex flex-col gap-5" style={{ backgroundColor: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
             <DarkField
@@ -863,6 +921,24 @@ function Step3({
                   selected={cleaningFrequency === 'daily'}
                   onClick={() => setCleaningFrequency('daily')}
                 />
+              </div>
+            </div>
+            <div>
+              <span className="text-xs uppercase tracking-wide mb-2 block" style={{ color: TEXT_SECONDARY }}>
+                Required cleaning — check all that apply
+              </span>
+              <div className="flex gap-3">
+                <Pill label="Sweeping" selected={cleaningTasks.includes('sweeping')} onClick={() => toggleTask('sweeping')} />
+                <Pill label="Scrubbing" selected={cleaningTasks.includes('scrubbing')} onClick={() => toggleTask('scrubbing')} />
+              </div>
+            </div>
+            <div>
+              <span className="text-xs uppercase tracking-wide mb-2 block" style={{ color: TEXT_SECONDARY }}>
+                Space conditions — check all that apply
+              </span>
+              <div className="flex gap-3">
+                <Pill label="Forklifts" selected={spaceHazards.includes('forklifts')} onClick={() => toggleHazard('forklifts')} />
+                <Pill label="Moving vehicles" selected={spaceHazards.includes('vehicles')} onClick={() => toggleHazard('vehicles')} />
               </div>
             </div>
           </div>
