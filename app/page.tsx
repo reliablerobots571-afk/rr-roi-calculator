@@ -552,9 +552,9 @@ export default function Home() {
 function StepTaskType({ onSelect }: { onSelect: (t: RobotCategory) => void }) {
   return (
     <div className="max-w-[640px] mx-auto">
-      <h2 className="font-heading text-white text-3xl mb-3">What kind of task?</h2>
+      <h2 className="font-heading text-white text-3xl mb-3">What&apos;s costing you the most labour?</h2>
       <p className="mb-10" style={{ color: TEXT_SECONDARY }}>
-        This decides which Reliable Robots products fit your operation.
+        Pick your biggest time-sink — we&apos;ll match you to the right robot for it.
       </p>
 
       <div className="flex flex-col gap-4">
