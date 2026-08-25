@@ -69,12 +69,14 @@ export function laborHoursEquivalent(units: number): { hoursPerDay: number; fteE
   }
 }
 
-// Real CC1 spec.
-const CC1_SQFT_PER_HOUR = 6331
-// ASSUMPTION: RR hasn't published how many unattended hours/day a facility
-// typically gives CC1 to run (overnight / between shifts). Placeholder: 3
-// hours/day, 7 days/week. Confirm before relying on this.
-const CC1_HOURS_PER_DAY = 3
+// Real specs from reliablerobots.ca/cc1 and /mt1 — "All-covered Cleaning
+// Mode" rate on both, so they're apples-to-apples. Using the conservative
+// low end of each published range.
+const CC1_SQFT_PER_HOUR = 7534.74 // 700 m²/h low end (range: 700-1000 m²/h)
+const CC1_HOURS_PER_DAY = 5 // real: general combined-mode battery runtime (range: 4-9h by mode)
+
+const MT1_SQFT_PER_HOUR = 19375.04 // All-covered Cleaning Mode, ~2.6x CC1's rate
+const MT1_HOURS_PER_DAY = 4 // real: conservative low end of published 4-8h runtime range
 
 // Real per-product payload specs (see note above on the 600kg/800kg conflict).
 const HANDLER_PAYLOAD_MAX_KG: Record<HandlerModel, number> = {
@@ -83,16 +85,13 @@ const HANDLER_PAYLOAD_MAX_KG: Record<HandlerModel, number> = {
 }
 
 export interface FacilityRecommendation {
-  // null means: can't confidently recommend a specific config — the
-  // facility is past what CC1 reasonably covers, and MT1 sizing needs a
-  // real throughput number we don't have yet.
-  model: FacilityModel | null
+  model: FacilityModel
   units: number
   note: string | null
 }
 
-// Above this many CC1 units, stacking CC1s stops being a credible
-// recommendation — a facility that size should be sized with MT1 instead.
+// Above this many CC1 units, consolidating into MT1 units (real ~2.6x
+// throughput) is the more credible recommendation.
 const MAX_REASONABLE_CC1_UNITS = 3
 
 export function recommendFacilityRobot(
@@ -101,16 +100,18 @@ export function recommendFacilityRobot(
 ): FacilityRecommendation {
   const passesPerWeek = frequency === 'daily' ? 7 : 1
   const sqftPerWeekNeeded = Math.max(0, sqft) * passesPerWeek
-  const sqftPerWeekPerCC1 = CC1_SQFT_PER_HOUR * CC1_HOURS_PER_DAY * 7
 
+  const sqftPerWeekPerCC1 = CC1_SQFT_PER_HOUR * CC1_HOURS_PER_DAY * 7
   const ccUnitsNeeded = sqftPerWeekPerCC1 > 0 ? Math.max(1, Math.ceil(sqftPerWeekNeeded / sqftPerWeekPerCC1)) : 1
 
   if (ccUnitsNeeded > MAX_REASONABLE_CC1_UNITS) {
-    // Don't fabricate a CC1 count that isn't a real recommendation.
+    const sqftPerWeekPerMT1 = MT1_SQFT_PER_HOUR * MT1_HOURS_PER_DAY * 7
+    const mt1UnitsNeeded = sqftPerWeekPerMT1 > 0 ? Math.max(1, Math.ceil(sqftPerWeekNeeded / sqftPerWeekPerMT1)) : 1
+
     return {
-      model: null,
-      units: ccUnitsNeeded, // kept for reference, not shown as a recommendation
-      note: 'This facility is sized for MT1, not CC1 — get an exact unit count from the team once MT1 throughput is confirmed.',
+      model: 'MT1',
+      units: mt1UnitsNeeded,
+      note: null,
     }
   }
 
