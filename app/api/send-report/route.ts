@@ -1,6 +1,6 @@
 import { Resend } from 'resend'
 import { NextResponse } from 'next/server'
-import { ROBOT_PRICES, RobotType } from '@/lib/calculations'
+import { RobotCategory } from '@/lib/calculations'
 
 const NAVY = '#081520'
 const GREEN = '#00BF63'
@@ -19,7 +19,15 @@ interface SendReportBody {
   monthlyLabourCost: number
   tenYearSavings: number
   breakEvenYear: number | null
-  robotType: RobotType
+  robotCategory: RobotCategory
+  robotModel: 'CC1' | 'MT1' | 'T300' | 'T600' | null
+  robotUnits: number
+  robotPrice: number
+}
+
+function robotSummary(data: SendReportBody): string {
+  if (!data.robotModel) return 'Not selected'
+  return `${data.robotUnits}x ${data.robotModel} (est. ${currency(data.robotPrice)} — exact pricing confirmed with the team)`
 }
 
 function currency(value: number) {
@@ -52,8 +60,8 @@ function customerEmailHtml(data: SendReportBody) {
           <td style="padding: 12px; border: 1px solid #e5e7eb;">${currency(data.monthlyLabourCost)}</td>
         </tr>
         <tr>
-          <td style="padding: 12px; border: 1px solid #e5e7eb; font-weight: bold;">Robot Type Selected</td>
-          <td style="padding: 12px; border: 1px solid #e5e7eb;">Type ${data.robotType} (${currency(ROBOT_PRICES[data.robotType])})</td>
+          <td style="padding: 12px; border: 1px solid #e5e7eb; font-weight: bold;">Recommended Robot</td>
+          <td style="padding: 12px; border: 1px solid #e5e7eb;">${robotSummary(data)}</td>
         </tr>
         <tr>
           <td style="padding: 12px; border: 1px solid #e5e7eb; font-weight: bold;">10-Year Savings</td>
@@ -90,7 +98,7 @@ function notificationEmailHtml(data: SendReportBody) {
       <tr><td style="padding: 8px; border: 1px solid #e5e7eb; font-weight: bold;">Company</td><td style="padding: 8px; border: 1px solid #e5e7eb;">${data.company || 'N/A'}</td></tr>
       <tr><td style="padding: 8px; border: 1px solid #e5e7eb; font-weight: bold;">Intent</td><td style="padding: 8px; border: 1px solid #e5e7eb;">${intentLabel}</td></tr>
       <tr><td style="padding: 8px; border: 1px solid #e5e7eb; font-weight: bold;">Monthly Labour Cost</td><td style="padding: 8px; border: 1px solid #e5e7eb;">${currency(data.monthlyLabourCost)}</td></tr>
-      <tr><td style="padding: 8px; border: 1px solid #e5e7eb; font-weight: bold;">Robot Type</td><td style="padding: 8px; border: 1px solid #e5e7eb;">Type ${data.robotType} (${currency(ROBOT_PRICES[data.robotType])})</td></tr>
+      <tr><td style="padding: 8px; border: 1px solid #e5e7eb; font-weight: bold;">Recommended Robot</td><td style="padding: 8px; border: 1px solid #e5e7eb;">${robotSummary(data)}</td></tr>
       <tr><td style="padding: 8px; border: 1px solid #e5e7eb; font-weight: bold;">10-Year Savings</td><td style="padding: 8px; border: 1px solid #e5e7eb;">${currency(data.tenYearSavings)}</td></tr>
       <tr><td style="padding: 8px; border: 1px solid #e5e7eb; font-weight: bold;">Break-Even Year</td><td style="padding: 8px; border: 1px solid #e5e7eb;">${breakEvenText}</td></tr>
     </table>
