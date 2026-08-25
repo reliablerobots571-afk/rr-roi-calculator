@@ -198,10 +198,14 @@ export default function Home() {
   const recommendedModel = facilityRecommendation?.model ?? handlerRecommendation?.model ?? null
   const recommendedUnits = facilityRecommendation?.units ?? handlerRecommendation?.units ?? 0
 
+  // Only price/size off a real recommendation — not the CC1-equivalent
+  // count kept for reference when the facility actually needs MT1 sizing.
+  const hasConfidentRecommendation = hasRecommendationInput && recommendedModel !== null
+
   // Graph math needs one concrete number. RR doesn't disclose per-model buy
   // pricing — "T300 from $24,000 CAD, all robots available" is the real,
   // universal anchor they quote, so that's what drives the 10-year estimate.
-  const robotPrice = hasRecommendationInput ? BUY_PRICE_ANCHOR * recommendedUnits : 0
+  const robotPrice = hasConfidentRecommendation ? BUY_PRICE_ANCHOR * recommendedUnits : 0
   const annualMaintenance = MAINTENANCE_COST[maintenanceTier]
 
   const tenYearData = hasResult
@@ -213,7 +217,7 @@ export default function Home() {
   const oneYearSavings = savingsAtYear(tenYearData, 1)
   const fiveYearSavings = savingsAtYear(tenYearData, 5)
 
-  const hoursEquivalent = hasRecommendationInput ? laborHoursEquivalent(recommendedUnits) : null
+  const hoursEquivalent = hasConfidentRecommendation ? laborHoursEquivalent(recommendedUnits) : null
 
   const totalLabourCost = tenYearData.length
     ? tenYearData[tenYearData.length - 1].labourCumulative
@@ -394,9 +398,11 @@ export default function Home() {
               {step > 3 && (
                 <SummaryLine onClick={() => goTo(3, 'back')}>
                   {inflationRate}% inflation ·{' '}
-                  {hasRecommendationInput && recommendedModel
+                  {hasConfidentRecommendation
                     ? `${recommendedUnits}x ${recommendedModel}`
-                    : 'No robot selected'}{' '}
+                    : hasRecommendationInput
+                      ? 'Needs MT1 sizing'
+                      : 'No robot selected'}{' '}
                   · {maintenanceTier === 'standard' ? 'Standard' : 'Heavy duty'} maintenance
                 </SummaryLine>
               )}
@@ -916,7 +922,7 @@ function Step3({
             Recommended
           </p>
           {hasRecommendationInput && taskType === 'facility' && facilityRecommendation ? (
-            <>
+            facilityRecommendation.model ? (
               <div className="flex items-baseline gap-3 mb-1">
                 <span className="font-heading text-white text-4xl font-bold">
                   {facilityRecommendation.units}x {facilityRecommendation.model}
@@ -925,12 +931,11 @@ function Step3({
                   facility robot
                 </span>
               </div>
-              {facilityRecommendation.note && (
-                <p className="text-sm mb-1" style={{ color: TEXT_SECONDARY }}>
-                  {facilityRecommendation.note}
-                </p>
-              )}
-            </>
+            ) : (
+              <p className="text-sm" style={{ color: TEXT_SECONDARY }}>
+                {facilityRecommendation.note}
+              </p>
+            )
           ) : hasRecommendationInput && taskType === 'handler' && handlerRecommendation ? (
             <>
               <div className="flex items-baseline gap-3 mb-1">
@@ -1094,7 +1099,12 @@ function Step4({
           className="rr-anim-fade-up mb-10"
           style={{ backgroundColor: CARD_BG, border: `1px solid ${CARD_BORDER}`, borderRadius: 16, padding: 32 }}
         >
-          <h3 className="font-heading text-white text-xl mb-6">10-year cost comparison</h3>
+          <div className="flex items-baseline justify-between mb-6">
+            <h3 className="font-heading text-white text-xl">Cost comparison over time</h3>
+            <span className="text-xs" style={{ color: TEXT_SECONDARY }}>
+              shown through Year 10
+            </span>
+          </div>
           <div style={{ width: '100%', height: 320 }}>
             <ResponsiveContainer>
               <LineChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>

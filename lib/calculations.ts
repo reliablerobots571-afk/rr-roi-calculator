@@ -83,10 +83,17 @@ const HANDLER_PAYLOAD_MAX_KG: Record<HandlerModel, number> = {
 }
 
 export interface FacilityRecommendation {
-  model: FacilityModel
+  // null means: can't confidently recommend a specific config — the
+  // facility is past what CC1 reasonably covers, and MT1 sizing needs a
+  // real throughput number we don't have yet.
+  model: FacilityModel | null
   units: number
   note: string | null
 }
+
+// Above this many CC1 units, stacking CC1s stops being a credible
+// recommendation — a facility that size should be sized with MT1 instead.
+const MAX_REASONABLE_CC1_UNITS = 3
 
 export function recommendFacilityRobot(
   sqft: number,
@@ -96,14 +103,21 @@ export function recommendFacilityRobot(
   const sqftPerWeekNeeded = Math.max(0, sqft) * passesPerWeek
   const sqftPerWeekPerCC1 = CC1_SQFT_PER_HOUR * CC1_HOURS_PER_DAY * 7
 
-  const units = sqftPerWeekPerCC1 > 0 ? Math.max(1, Math.ceil(sqftPerWeekNeeded / sqftPerWeekPerCC1)) : 1
+  const ccUnitsNeeded = sqftPerWeekPerCC1 > 0 ? Math.max(1, Math.ceil(sqftPerWeekNeeded / sqftPerWeekPerCC1)) : 1
 
-  // We don't have a public throughput number for MT1, so we can't size it
-  // automatically — just flag it as an option once CC1 count gets high.
+  if (ccUnitsNeeded > MAX_REASONABLE_CC1_UNITS) {
+    // Don't fabricate a CC1 count that isn't a real recommendation.
+    return {
+      model: null,
+      units: ccUnitsNeeded, // kept for reference, not shown as a recommendation
+      note: 'This facility is sized for MT1, not CC1 — get an exact unit count from the team once MT1 throughput is confirmed.',
+    }
+  }
+
   return {
     model: 'CC1',
-    units,
-    note: units > 3 ? 'At this scale, ask the team about MT1 for large-area industrial floors.' : null,
+    units: ccUnitsNeeded,
+    note: null,
   }
 }
 
