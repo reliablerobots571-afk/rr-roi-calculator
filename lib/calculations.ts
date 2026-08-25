@@ -54,6 +54,21 @@ export const MAINTENANCE_COST: Record<MaintenanceTier, number> = {
   heavy: 1500,
 }
 
+// Johnny's own framing: a robot can run 3x 5-hour shifts in 24 hours = 15
+// hours/day. Against a standard 8-hour human shift, that's ~1.9, "about two
+// people" per unit per day (his words). Real, client-given numbers — not
+// invented.
+export const ROBOT_HOURS_PER_DAY = 15
+export const STANDARD_SHIFT_HOURS = 8
+
+export function laborHoursEquivalent(units: number): { hoursPerDay: number; fteEquivalent: number } {
+  const hoursPerDay = units * ROBOT_HOURS_PER_DAY
+  return {
+    hoursPerDay,
+    fteEquivalent: hoursPerDay / STANDARD_SHIFT_HOURS,
+  }
+}
+
 // Real CC1 spec.
 const CC1_SQFT_PER_HOUR = 6331
 // ASSUMPTION: RR hasn't published how many unattended hours/day a facility
@@ -179,6 +194,12 @@ export function calculateBreakEven(data: YearlyData[]): number | null {
     }
   }
   return null
+}
+
+export function savingsAtYear(data: YearlyData[], year: number): number {
+  const point = data.find((d) => d.year === year)
+  if (!point) return 0
+  return point.labourCumulative - point.robotCumulative
 }
 
 export interface ReadinessScore {

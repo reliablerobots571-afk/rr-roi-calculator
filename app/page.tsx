@@ -22,12 +22,14 @@ import {
   DEFAULT_HOURLY_WAGE,
   FacilityRecommendation,
   HandlerRecommendation,
+  laborHoursEquivalent,
   MAINTENANCE_COST,
   MaintenanceTier,
   RAAS_MONTHLY_ANCHOR,
   recommendFacilityRobot,
   recommendHandlerRobot,
   RobotCategory,
+  savingsAtYear,
 } from '@/lib/calculations'
 
 const GREEN = '#00BF63'
@@ -207,6 +209,11 @@ export default function Home() {
     : []
 
   const breakEvenYear = calculateBreakEven(tenYearData)
+
+  const oneYearSavings = savingsAtYear(tenYearData, 1)
+  const fiveYearSavings = savingsAtYear(tenYearData, 5)
+
+  const hoursEquivalent = hasRecommendationInput ? laborHoursEquivalent(recommendedUnits) : null
 
   const totalLabourCost = tenYearData.length
     ? tenYearData[tenYearData.length - 1].labourCumulative
@@ -468,12 +475,13 @@ export default function Home() {
                   onBack={() => goTo(3, 'back')}
                   onNext={() => goTo(5, 'forward')}
                   monthlyLabourCost={monthlyLabourCost}
-                  totalLabourCost={totalLabourCost}
-                  totalRobotCost={totalRobotCost}
+                  oneYearSavings={oneYearSavings}
+                  fiveYearSavings={fiveYearSavings}
                   tenYearSavings={tenYearSavings}
                   breakEvenYear={breakEvenYear}
                   chartData={chartData}
                   readiness={readiness}
+                  hoursEquivalent={hoursEquivalent}
                 />
               )}
 
@@ -1000,24 +1008,26 @@ function Step4({
   onBack,
   onNext,
   monthlyLabourCost,
-  totalLabourCost,
-  totalRobotCost,
+  oneYearSavings,
+  fiveYearSavings,
   tenYearSavings,
   breakEvenYear,
   chartData,
   readiness,
+  hoursEquivalent,
 }: {
   onBack: () => void
   onNext: () => void
   monthlyLabourCost: number
-  totalLabourCost: number
-  totalRobotCost: number
+  oneYearSavings: number
+  fiveYearSavings: number
   tenYearSavings: number
   breakEvenYear: number | null
   chartData: ChartPoint[]
   readiness: { score: number; label: 'LOW' | 'MEDIUM' | 'HIGH'; description: string }
+  hoursEquivalent: { hoursPerDay: number; fteEquivalent: number } | null
 }) {
-  const animatedSavings = useCountUp(tenYearSavings, 800)
+  const animatedSavings = useCountUp(fiveYearSavings, 800)
 
   const [revealStage, setRevealStage] = useState(0)
   useEffect(() => {
@@ -1049,7 +1059,7 @@ function Step4({
             }}
           >
             <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: GREEN }}>
-              10-Year Savings With Automation
+              5-Year Savings With Automation
             </p>
             <p className="font-heading text-white font-bold text-6xl md:text-[72px]">
               {currency(animatedSavings, 0)}
@@ -1057,12 +1067,19 @@ function Step4({
             <p className="mt-3" style={{ color: TEXT_SECONDARY }}>
               compared to continuing with labour
             </p>
+            <p className="text-xs mt-4" style={{ color: TEXT_SECONDARY }}>
+              10-year projection: {currency(tenYearSavings, 0)}
+            </p>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
             <StatCard label="Monthly Labour Cost" value={currency(monthlyLabourCost, 0)} color="#ffffff" />
-            <StatCard label="Total Labour (10yr)" value={currency(totalLabourCost, 0)} color={RED} />
-            <StatCard label="Total Robot (10yr)" value={currency(totalRobotCost, 0)} color={GREEN} />
+            <StatCard label="1-Year Savings" value={currency(oneYearSavings, 0)} color={GREEN} />
+            <StatCard
+              label="Labour Hours Replaced"
+              value={hoursEquivalent ? `~${hoursEquivalent.fteEquivalent.toFixed(1)} people/day` : 'N/A'}
+              color="#ffffff"
+            />
             <StatCard
               label="Break-Even"
               value={breakEvenYear ? `Year ${breakEvenYear}` : 'Beyond 10 years'}
