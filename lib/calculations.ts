@@ -77,13 +77,17 @@ export function laborHoursEquivalent(units: number): { hoursPerDay: number; fteE
 const CC1_SQFT_PER_HOUR = 7534.74 // 700 m²/h low end (range: 700-1000 m²/h)
 const CC1_HOURS_PER_DAY = 5 // real: general combined-mode battery runtime (range: 4-9h by mode)
 
-const MT1_SQFT_PER_HOUR = 19375.04 // All-covered Cleaning Mode, ~2.6x CC1's rate
-const MT1_HOURS_PER_DAY = 4 // real: conservative low end of published 4-8h runtime range
+// MT1 (19,375 sqft/h, 4h runtime) isn't used as a pick here — BG1's real
+// numbers (21,528 sqft/h, 7.5h runtime) beat it on both throughput and
+// runtime, so BG1 is the better "next tier up from CC1" by the numbers we
+// have. MT1/MT1 Max stay in the FacilityModel type in case Johnny wants
+// them reintroduced for a reason this model doesn't capture (e.g. dry-only
+// industrial cleaning vs BG1's wet sweep+scrub).
 
 // BG1's real, defining feature: sweeps AND scrubs in ONE pass ("By sweeping
 // in the front and scrubbing in the rear, it eliminates the need for
-// multiple cleaning passes"). CC1/MT1 do one function per pass — if a job
-// needs both, they have to run the space twice, halving effective coverage.
+// multiple cleaning passes"). CC1 does one function per pass — if a job
+// needs both, it has to run the space twice, halving effective coverage.
 const BG1_SQFT_PER_HOUR = 21528 // Covered Cleaning Mode
 const BG1_HOURS_PER_DAY = 7.5 // real: max Sweeping & Scrubbing runtime
 // BG1 Pro shares BG1's cleaning performance — the Pro difference is
@@ -101,8 +105,8 @@ export interface FacilityRecommendation {
   note: string | null
 }
 
-// Above this many CC1 units, consolidating into MT1 units (real ~2.6x
-// throughput) is the more credible recommendation.
+// Above this many CC1 units, BG1 (real ~4x weekly capacity once its longer
+// runtime is factored in) is the more credible "next tier up" pick.
 const MAX_REASONABLE_CC1_UNITS = 3
 
 export function recommendFacilityRobot(
@@ -117,42 +121,27 @@ export function recommendFacilityRobot(
   const needsBoth = cleaningTasks.includes('sweeping') && cleaningTasks.includes('scrubbing')
   const hasHazard = hazards.length > 0
 
-  // CC1/MT1 need a second pass to cover the second cleaning function —
-  // halves their effective weekly capacity. BG1/BG1 Pro don't take this hit.
+  // CC1 needs a second pass to cover a second cleaning function — halves
+  // its effective weekly capacity. BG1/BG1 Pro don't take this hit (built
+  // to sweep and scrub in one pass).
   const passPenalty = needsBoth ? 2 : 1
+  const sqftPerWeekPerCC1 = (CC1_SQFT_PER_HOUR * CC1_HOURS_PER_DAY * 7) / passPenalty
+  const ccUnitsNeeded = Math.max(1, Math.ceil(sqftPerWeekNeeded / sqftPerWeekPerCC1))
 
-  if (needsBoth) {
+  // BG1 is the "XL" tier once CC1 would need too many units, OR the job
+  // needs both sweeping and scrubbing (where BG1's one-pass design wins
+  // regardless of facility size). Matches "3x CC1 or 1x BG1" as a general
+  // sizing rule, not just a combo-cleaning special case.
+  if (needsBoth || ccUnitsNeeded > MAX_REASONABLE_CC1_UNITS) {
     const sqftPerWeekPerBG1 = BG1_SQFT_PER_HOUR * BG1_HOURS_PER_DAY * 7
     const bg1UnitsNeeded = Math.max(1, Math.ceil(sqftPerWeekNeeded / sqftPerWeekPerBG1))
     const model: FacilityModel = hasHazard ? 'BG1 Pro' : 'BG1'
 
-    // Reference-only equivalent, matching the original "3x CC1 or 1x BG1"
-    // framing — shown in the note, not as a real alternative recommendation.
-    const sqftPerWeekPerCC1 = (CC1_SQFT_PER_HOUR * CC1_HOURS_PER_DAY * 7) / passPenalty
-    const ccEquivalentUnits = Math.max(1, Math.ceil(sqftPerWeekNeeded / sqftPerWeekPerCC1))
+    const note = needsBoth
+      ? `Sweeping + scrubbing both needed — ${model} does both in one pass instead of two. Roughly equivalent to ${ccUnitsNeeded}x CC1 running each pass separately.`
+      : `Roughly equivalent to ${ccUnitsNeeded}x CC1.`
 
-    return {
-      model,
-      units: bg1UnitsNeeded,
-      note: `Sweeping + scrubbing both needed — ${model} does both in one pass instead of two. Roughly equivalent to ${ccEquivalentUnits}x CC1 running each pass separately.`,
-    }
-  }
-
-  const sqftPerWeekPerCC1 = CC1_SQFT_PER_HOUR * CC1_HOURS_PER_DAY * 7
-  const ccUnitsNeeded = Math.max(1, Math.ceil(sqftPerWeekNeeded / sqftPerWeekPerCC1))
-
-  if (ccUnitsNeeded > MAX_REASONABLE_CC1_UNITS) {
-    const sqftPerWeekPerMT1 = MT1_SQFT_PER_HOUR * MT1_HOURS_PER_DAY * 7
-    const mt1UnitsNeeded = Math.max(1, Math.ceil(sqftPerWeekNeeded / sqftPerWeekPerMT1))
-    const model: FacilityModel = hasHazard ? 'MT1 Max' : 'MT1'
-
-    return {
-      model,
-      units: mt1UnitsNeeded,
-      note: hasHazard
-        ? 'MT1 Max recommended over base MT1 — built for spaces with forklifts or moving vehicles (stronger obstacle detection, audible/visual alarms).'
-        : null,
-    }
+    return { model, units: bg1UnitsNeeded, note }
   }
 
   return {

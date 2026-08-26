@@ -998,7 +998,7 @@ function Step3({
             Recommended
           </p>
           {hasRecommendationInput && taskType === 'facility' && facilityRecommendation ? (
-            facilityRecommendation.model ? (
+            <>
               <div className="flex items-baseline gap-3 mb-1">
                 <span className="font-heading text-white text-4xl font-bold">
                   {facilityRecommendation.units}x {facilityRecommendation.model}
@@ -1007,11 +1007,12 @@ function Step3({
                   facility robot
                 </span>
               </div>
-            ) : (
-              <p className="text-sm" style={{ color: TEXT_SECONDARY }}>
-                {facilityRecommendation.note}
-              </p>
-            )
+              {facilityRecommendation.note && (
+                <p className="text-sm mb-1" style={{ color: TEXT_SECONDARY }}>
+                  {facilityRecommendation.note}
+                </p>
+              )}
+            </>
           ) : hasRecommendationInput && taskType === 'handler' && handlerRecommendation ? (
             <>
               <div className="flex items-baseline gap-3 mb-1">
