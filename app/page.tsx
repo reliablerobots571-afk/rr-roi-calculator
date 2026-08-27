@@ -376,7 +376,7 @@ export default function Home() {
             className="text-sm font-semibold tracking-widest uppercase mb-6"
             style={{ color: GREEN }}
           >
-            Free Tool — Reliable Robots
+            Free Tool, Reliable Robots
           </p>
           <h1 className="font-heading text-white text-4xl md:text-[56px] leading-tight mb-4">
             What are you looking to automate?
@@ -575,7 +575,7 @@ function StepTaskType({ onSelect }: { onSelect: (t: RobotCategory) => void }) {
     <div className="max-w-[640px] mx-auto">
       <h2 className="font-heading text-white text-3xl mb-3">What&apos;s costing you the most labour?</h2>
       <p className="mb-10" style={{ color: TEXT_SECONDARY }}>
-        Pick your biggest time-sink — we&apos;ll match you to the right robot for it.
+        Pick your biggest time-sink. We&apos;ll match you to the right robot for it.
       </p>
 
       <div className="flex flex-col gap-4">
@@ -723,7 +723,7 @@ function Step2(props: {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs uppercase tracking-wide" style={{ color: TEXT_SECONDARY }}>
-                  Team size snap — {peopleCount} {peopleCount === 1 ? 'person' : 'people'} standard month
+                  Team size snap: {peopleCount} {peopleCount === 1 ? 'person' : 'people'} standard month
                 </span>
                 <span className="font-semibold" style={{ color: GREEN }}>
                   {(STANDARD_MONTHLY_HOURS * peopleCount).toFixed(1)}h
@@ -731,7 +731,7 @@ function Step2(props: {
               </div>
               <Slider min={1} max={10} step={1} value={peopleCount} onChange={snapToPeople} />
               <p className="text-xs mt-2" style={{ color: TEXT_SECONDARY }}>
-                Snaps the field below to {STANDARD_MONTHLY_HOURS}h × team size — still editable directly.
+                Snaps the field below to {STANDARD_MONTHLY_HOURS}h × team size. Still editable directly.
               </p>
             </div>
             <DarkField
@@ -972,7 +972,7 @@ function Step3({
             </div>
             <div>
               <span className="text-xs uppercase tracking-wide mb-2 block" style={{ color: TEXT_SECONDARY }}>
-                Required cleaning — check all that apply
+                Required cleaning: check all that apply
               </span>
               <div className="flex gap-3">
                 <Pill label="Sweeping" selected={cleaningTasks.includes('sweeping')} onClick={() => toggleTask('sweeping')} />
@@ -981,7 +981,7 @@ function Step3({
             </div>
             <div>
               <span className="text-xs uppercase tracking-wide mb-2 block" style={{ color: TEXT_SECONDARY }}>
-                Space conditions — check all that apply
+                Space conditions: check all that apply
               </span>
               <div className="flex gap-3">
                 <Pill label="Forklifts" selected={spaceHazards.includes('forklifts')} onClick={() => toggleHazard('forklifts')} />
@@ -1115,12 +1115,12 @@ function Step3({
           <p className="text-white font-medium mb-4">Annual maintenance</p>
           <div className="flex gap-3">
             <Pill
-              label={`Standard — $${MAINTENANCE_COST.standard}/yr`}
+              label={`Standard: $${MAINTENANCE_COST.standard}/yr`}
               selected={maintenanceTier === 'standard'}
               onClick={() => setMaintenanceTier('standard')}
             />
             <Pill
-              label={`Heavy duty — $${MAINTENANCE_COST.heavy}/yr`}
+              label={`Heavy duty: $${MAINTENANCE_COST.heavy}/yr`}
               selected={maintenanceTier === 'heavy'}
               onClick={() => setMaintenanceTier('heavy')}
             />

@@ -27,7 +27,7 @@ interface SendReportBody {
 
 function robotSummary(data: SendReportBody): string {
   if (!data.robotModel) return 'Not selected'
-  return `${data.robotUnits}x ${data.robotModel} (est. ${currency(data.robotPrice)} — exact pricing confirmed with the team)`
+  return `${data.robotUnits}x ${data.robotModel} (est. ${currency(data.robotPrice)}, exact pricing confirmed with the team)`
 }
 
 function currency(value: number) {
@@ -120,7 +120,7 @@ export async function POST(request: Request) {
     const customerResult = await resend.emails.send({
       from: fromEmail,
       to: body.email,
-      subject: 'Your ROI Report — Reliable Robots',
+      subject: 'Your ROI Report from Reliable Robots',
       html: customerEmailHtml(body),
     })
 
@@ -131,7 +131,7 @@ export async function POST(request: Request) {
     const notifyResult = await resend.emails.send({
       from: fromEmail,
       to: 'info@reliablerobots.ca',
-      subject: `New ROI Calculator Lead — ${body.firstName} at ${body.company || 'N/A'}`,
+      subject: `New ROI Calculator Lead: ${body.firstName} at ${body.company || 'N/A'}`,
       html: notificationEmailHtml(body),
     })
 

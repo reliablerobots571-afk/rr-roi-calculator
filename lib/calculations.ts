@@ -138,7 +138,7 @@ export function recommendFacilityRobot(
     const model: FacilityModel = hasHazard ? 'BG1 Pro' : 'BG1'
 
     const note = needsBoth
-      ? `Sweeping + scrubbing both needed — ${model} does both in one pass instead of two. Roughly equivalent to ${ccUnitsNeeded}x CC1 running each pass separately.`
+      ? `Sweeping + scrubbing both needed. ${model} does both in one pass instead of two. Roughly equivalent to ${ccUnitsNeeded}x CC1 running each pass separately.`
       : `Roughly equivalent to ${ccUnitsNeeded}x CC1.`
 
     return { model, units: bg1UnitsNeeded, note }
