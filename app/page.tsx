@@ -129,7 +129,10 @@ export default function Home() {
   const [cleaningFrequency, setCleaningFrequency] = useState<CleaningFrequency>('weekly')
   const [cleaningTasks, setCleaningTasks] = useState<CleaningTask[]>([])
   const [spaceHazards, setSpaceHazards] = useState<SpaceHazard[]>([])
-  const [cleaningTimePercent, setCleaningTimePercent] = useState(100)
+  const [timeSweeping, setTimeSweeping] = useState(25)
+  const [timeMopping, setTimeMopping] = useState(25)
+  const [timeScrubbing, setTimeScrubbing] = useState(25)
+  const [timeVacuuming, setTimeVacuuming] = useState(25)
 
   const [payloadKg, setPayloadKg] = useState('')
   const [tripsPerLocation, setTripsPerLocation] = useState('')
@@ -270,6 +273,10 @@ export default function Home() {
     if (method === 'team') return (parseFloat(teamSize) || 0) * (parseFloat(hoursPerWeek) || 0) * 4.33
     return null
   })()
+
+  // Sum of the four task sliders, capped at 100 since a team can't spend
+  // more than all of its time cleaning.
+  const cleaningTimePercent = Math.min(100, timeSweeping + timeMopping + timeScrubbing + timeVacuuming)
 
   const hoursReplaced =
     taskType === 'facility' && hasConfidentRecommendation && knownMonthlyHours !== null && knownMonthlyHours > 0
@@ -531,8 +538,14 @@ export default function Home() {
                   setCleaningTasks={setCleaningTasks}
                   spaceHazards={spaceHazards}
                   setSpaceHazards={setSpaceHazards}
-                  cleaningTimePercent={cleaningTimePercent}
-                  setCleaningTimePercent={setCleaningTimePercent}
+                  timeSweeping={timeSweeping}
+                  setTimeSweeping={setTimeSweeping}
+                  timeMopping={timeMopping}
+                  setTimeMopping={setTimeMopping}
+                  timeScrubbing={timeScrubbing}
+                  setTimeScrubbing={setTimeScrubbing}
+                  timeVacuuming={timeVacuuming}
+                  setTimeVacuuming={setTimeVacuuming}
                   payloadKg={payloadKg}
                   setPayloadKg={setPayloadKg}
                   tripsPerLocation={tripsPerLocation}
@@ -896,8 +909,14 @@ function Step3({
   setCleaningTasks,
   spaceHazards,
   setSpaceHazards,
-  cleaningTimePercent,
-  setCleaningTimePercent,
+  timeSweeping,
+  setTimeSweeping,
+  timeMopping,
+  setTimeMopping,
+  timeScrubbing,
+  setTimeScrubbing,
+  timeVacuuming,
+  setTimeVacuuming,
   payloadKg,
   setPayloadKg,
   tripsPerLocation,
@@ -935,8 +954,14 @@ function Step3({
   setCleaningTasks: (v: CleaningTask[]) => void
   spaceHazards: SpaceHazard[]
   setSpaceHazards: (v: SpaceHazard[]) => void
-  cleaningTimePercent: number
-  setCleaningTimePercent: (v: number) => void
+  timeSweeping: number
+  setTimeSweeping: (v: number) => void
+  timeMopping: number
+  setTimeMopping: (v: number) => void
+  timeScrubbing: number
+  setTimeScrubbing: (v: number) => void
+  timeVacuuming: number
+  setTimeVacuuming: (v: number) => void
   payloadKg: string
   setPayloadKg: (v: string) => void
   tripsPerLocation: string
@@ -967,6 +992,7 @@ function Step3({
   function toggleHazard(h: SpaceHazard) {
     setSpaceHazards(spaceHazards.includes(h) ? spaceHazards.filter((x) => x !== h) : [...spaceHazards, h])
   }
+  const rawCleaningTimeTotal = timeSweeping + timeMopping + timeScrubbing + timeVacuuming
 
   return (
     <div className="max-w-[640px] mx-auto">
@@ -1042,17 +1068,34 @@ function Step3({
               </div>
             </div>
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs uppercase tracking-wide" style={{ color: TEXT_SECONDARY }}>
-                  % of team&apos;s time on floor cleaning
-                </span>
-                <span className="font-semibold" style={{ color: GREEN }}>
-                  {cleaningTimePercent}%
-                </span>
+              <span className="text-xs uppercase tracking-wide mb-3 block" style={{ color: TEXT_SECONDARY }}>
+                How does your team&apos;s cleaning time break down?
+              </span>
+              <div className="flex flex-col gap-4">
+                {(
+                  [
+                    { label: 'Sweeping', value: timeSweeping, set: setTimeSweeping },
+                    { label: 'Mopping', value: timeMopping, set: setTimeMopping },
+                    { label: 'Scrubbing', value: timeScrubbing, set: setTimeScrubbing },
+                    { label: 'Vacuuming', value: timeVacuuming, set: setTimeVacuuming },
+                  ] as const
+                ).map((row) => (
+                  <div key={row.label}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm" style={{ color: TEXT_SECONDARY }}>
+                        {row.label}
+                      </span>
+                      <span className="font-semibold text-sm" style={{ color: GREEN }}>
+                        {row.value}%
+                      </span>
+                    </div>
+                    <Slider min={0} max={100} step={5} value={row.value} onChange={row.set} />
+                  </div>
+                ))}
               </div>
-              <Slider min={10} max={100} step={5} value={cleaningTimePercent} onChange={setCleaningTimePercent} />
-              <p className="text-xs mt-2" style={{ color: TEXT_SECONDARY }}>
-                Sweeping, mopping, scrubbing, vacuuming. Lower this if cleaning is only part of the job.
+              <p className="text-xs mt-3" style={{ color: rawCleaningTimeTotal > 100 ? AMBER : TEXT_SECONDARY }}>
+                Total: {rawCleaningTimeTotal}% of team&apos;s time
+                {rawCleaningTimeTotal > 100 ? ' (over 100%, capped at 100% for the calculation)' : ''}
               </p>
             </div>
           </div>
