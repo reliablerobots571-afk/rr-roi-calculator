@@ -14,6 +14,7 @@ import {
 import {
   BUY_PRICE_ANCHOR,
   calculateBreakEven,
+  calculateManualEffort,
   calculateMonthlyLabourCost,
   calculateReadinessScore,
   calculateTenYearData,
@@ -21,17 +22,24 @@ import {
   CleaningFrequency,
   CleaningTask,
   DEFAULT_HOURLY_WAGE,
+  FacilityModel,
   FacilityRecommendation,
+  HandlerModel,
   HandlerRecommendation,
+  HoursReplacedResult,
   laborHoursEquivalent,
   MAINTENANCE_COST,
   MaintenanceTier,
+  ManualEffortResult,
+  PayloadType,
   RAAS_MONTHLY_ANCHOR,
+  reconcileHoursReplaced,
   recommendFacilityRobot,
   recommendHandlerRobot,
   RobotCategory,
   savingsAtYear,
   SpaceHazard,
+  TransportMethod,
 } from '@/lib/calculations'
 
 const GREEN = '#00BF63'
@@ -121,6 +129,7 @@ export default function Home() {
   const [cleaningFrequency, setCleaningFrequency] = useState<CleaningFrequency>('weekly')
   const [cleaningTasks, setCleaningTasks] = useState<CleaningTask[]>([])
   const [spaceHazards, setSpaceHazards] = useState<SpaceHazard[]>([])
+  const [cleaningTimePercent, setCleaningTimePercent] = useState(100)
 
   const [payloadKg, setPayloadKg] = useState('')
   const [tripsPerLocation, setTripsPerLocation] = useState('')
@@ -129,6 +138,8 @@ export default function Home() {
   const [workHoursPerShift, setWorkHoursPerShift] = useState('8')
   const [shiftsCount, setShiftsCount] = useState('1')
   const [avgSpeed, setAvgSpeed] = useState(1)
+  const [transportMethod, setTransportMethod] = useState<TransportMethod>('cart')
+  const [payloadType, setPayloadType] = useState<PayloadType>('pallets')
 
   const [maintenanceTier, setMaintenanceTier] = useState<MaintenanceTier>('standard')
 
@@ -250,6 +261,25 @@ export default function Home() {
   const fiveYearSavings = savingsAtYear(tenYearData, 5)
 
   const hoursEquivalent = hasConfidentRecommendation ? laborHoursEquivalent(recommendedUnits) : null
+
+  // Only 'hours' and 'team' methods give us real hours worked. 'sqft' and
+  // 'monthly' only give a dollar figure, so there's nothing to reconcile
+  // against for those, and the flat capacity stat is the fallback.
+  const knownMonthlyHours = (() => {
+    if (method === 'hours') return parseFloat(monthlyHours) || 0
+    if (method === 'team') return (parseFloat(teamSize) || 0) * (parseFloat(hoursPerWeek) || 0) * 4.33
+    return null
+  })()
+
+  const hoursReplaced =
+    taskType === 'facility' && hasConfidentRecommendation && knownMonthlyHours !== null && knownMonthlyHours > 0
+      ? reconcileHoursReplaced(knownMonthlyHours, cleaningTimePercent, recommendedUnits)
+      : null
+
+  const manualEffort =
+    taskType === 'handler' && hasConfidentRecommendation
+      ? calculateManualEffort(totalTripsPerDay, parseFloat(avgTripLength) || 0, transportMethod)
+      : null
 
   const totalLabourCost = tenYearData.length
     ? tenYearData[tenYearData.length - 1].labourCumulative
@@ -501,6 +531,8 @@ export default function Home() {
                   setCleaningTasks={setCleaningTasks}
                   spaceHazards={spaceHazards}
                   setSpaceHazards={setSpaceHazards}
+                  cleaningTimePercent={cleaningTimePercent}
+                  setCleaningTimePercent={setCleaningTimePercent}
                   payloadKg={payloadKg}
                   setPayloadKg={setPayloadKg}
                   tripsPerLocation={tripsPerLocation}
@@ -515,6 +547,10 @@ export default function Home() {
                   setShiftsCount={setShiftsCount}
                   avgSpeed={avgSpeed}
                   setAvgSpeed={setAvgSpeed}
+                  transportMethod={transportMethod}
+                  setTransportMethod={setTransportMethod}
+                  payloadType={payloadType}
+                  setPayloadType={setPayloadType}
                   hasRecommendationInput={hasRecommendationInput}
                   facilityRecommendation={facilityRecommendation}
                   handlerRecommendation={handlerRecommendation}
@@ -535,6 +571,11 @@ export default function Home() {
                   chartData={chartData}
                   readiness={readiness}
                   hoursEquivalent={hoursEquivalent}
+                  hoursReplaced={hoursReplaced}
+                  taskType={taskType}
+                  recommendedModel={recommendedModel}
+                  manualEffort={manualEffort}
+                  transportMethod={transportMethod}
                 />
               )}
 
@@ -855,6 +896,8 @@ function Step3({
   setCleaningTasks,
   spaceHazards,
   setSpaceHazards,
+  cleaningTimePercent,
+  setCleaningTimePercent,
   payloadKg,
   setPayloadKg,
   tripsPerLocation,
@@ -869,6 +912,10 @@ function Step3({
   setShiftsCount,
   avgSpeed,
   setAvgSpeed,
+  transportMethod,
+  setTransportMethod,
+  payloadType,
+  setPayloadType,
   hasRecommendationInput,
   facilityRecommendation,
   handlerRecommendation,
@@ -888,6 +935,8 @@ function Step3({
   setCleaningTasks: (v: CleaningTask[]) => void
   spaceHazards: SpaceHazard[]
   setSpaceHazards: (v: SpaceHazard[]) => void
+  cleaningTimePercent: number
+  setCleaningTimePercent: (v: number) => void
   payloadKg: string
   setPayloadKg: (v: string) => void
   tripsPerLocation: string
@@ -902,6 +951,10 @@ function Step3({
   setShiftsCount: (v: string) => void
   avgSpeed: number
   setAvgSpeed: (v: number) => void
+  transportMethod: TransportMethod
+  setTransportMethod: (v: TransportMethod) => void
+  payloadType: PayloadType
+  setPayloadType: (v: PayloadType) => void
   hasRecommendationInput: boolean
   facilityRecommendation: FacilityRecommendation | null
   handlerRecommendation: HandlerRecommendation | null
@@ -988,9 +1041,42 @@ function Step3({
                 <Pill label="Moving vehicles" selected={spaceHazards.includes('vehicles')} onClick={() => toggleHazard('vehicles')} />
               </div>
             </div>
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs uppercase tracking-wide" style={{ color: TEXT_SECONDARY }}>
+                  % of team&apos;s time on floor cleaning
+                </span>
+                <span className="font-semibold" style={{ color: GREEN }}>
+                  {cleaningTimePercent}%
+                </span>
+              </div>
+              <Slider min={10} max={100} step={5} value={cleaningTimePercent} onChange={setCleaningTimePercent} />
+              <p className="text-xs mt-2" style={{ color: TEXT_SECONDARY }}>
+                Sweeping, mopping, scrubbing, vacuuming. Lower this if cleaning is only part of the job.
+              </p>
+            </div>
           </div>
         ) : (
           <div className="rounded-xl p-6 flex flex-col gap-5" style={{ backgroundColor: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
+            <div>
+              <span className="text-xs uppercase tracking-wide mb-2 block" style={{ color: TEXT_SECONDARY }}>
+                How is this done today?
+              </span>
+              <div className="flex gap-3">
+                <Pill label="Manual cart" selected={transportMethod === 'cart'} onClick={() => setTransportMethod('cart')} />
+                <Pill label="Forklift" selected={transportMethod === 'forklift'} onClick={() => setTransportMethod('forklift')} />
+              </div>
+            </div>
+            <div>
+              <span className="text-xs uppercase tracking-wide mb-2 block" style={{ color: TEXT_SECONDARY }}>
+                What are you moving?
+              </span>
+              <div className="flex gap-3">
+                <Pill label="Pallets" selected={payloadType === 'pallets'} onClick={() => setPayloadType('pallets')} />
+                <Pill label="Bins" selected={payloadType === 'bins'} onClick={() => setPayloadType('bins')} />
+                <Pill label="Boxes" selected={payloadType === 'boxes'} onClick={() => setPayloadType('boxes')} />
+              </div>
+            </div>
             <DarkField
               label="Average payload (kg)"
               type="number"
@@ -1162,6 +1248,11 @@ function Step4({
   chartData,
   readiness,
   hoursEquivalent,
+  hoursReplaced,
+  taskType,
+  recommendedModel,
+  manualEffort,
+  transportMethod,
 }: {
   onBack: () => void
   onNext: () => void
@@ -1173,6 +1264,11 @@ function Step4({
   chartData: ChartPoint[]
   readiness: { score: number; label: 'LOW' | 'MEDIUM' | 'HIGH'; description: string }
   hoursEquivalent: { hoursPerDay: number; fteEquivalent: number } | null
+  hoursReplaced: HoursReplacedResult | null
+  taskType: RobotCategory | null
+  recommendedModel: FacilityModel | HandlerModel | null
+  manualEffort: ManualEffortResult | null
+  transportMethod: TransportMethod
 }) {
   const animatedSavings = useCountUp(fiveYearSavings, 800)
 
@@ -1219,12 +1315,18 @@ function Step4({
             </p>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-2">
             <StatCard label="Monthly Labour Cost" value={currency(monthlyLabourCost, 0)} color="#ffffff" />
             <StatCard label="1-Year Savings" value={currency(oneYearSavings, 0)} color={GREEN} />
             <StatCard
-              label="Labour Hours Replaced"
-              value={hoursEquivalent ? `~${hoursEquivalent.fteEquivalent.toFixed(1)} people/day` : 'N/A'}
+              label={hoursReplaced ? 'Cleaning Hours Replaced' : 'Labour Hours Replaced'}
+              value={
+                hoursReplaced
+                  ? `~${hoursReplaced.replacedHoursPerMonth.toFixed(0)}h/mo (${hoursReplaced.percentOfCleaningHours.toFixed(0)}%)`
+                  : hoursEquivalent
+                    ? `~${hoursEquivalent.fteEquivalent.toFixed(1)} people/day`
+                    : 'N/A'
+              }
               color="#ffffff"
             />
             <StatCard
@@ -1233,6 +1335,45 @@ function Step4({
               color="#ffffff"
             />
           </div>
+
+          {hoursReplaced && hoursReplaced.hasHeadroom && (
+            <p className="text-xs mb-8" style={{ color: TEXT_SECONDARY }}>
+              Covers 100% of your team&apos;s cleaning hours, with capacity to spare (up to{' '}
+              {hoursReplaced.robotHoursPerMonth.toFixed(0)}h/mo available).
+            </p>
+          )}
+          {!hoursReplaced && <div className="mb-8" />}
+
+          {taskType === 'handler' && manualEffort && recommendedModel && (
+            <div
+              className="mb-10 rounded-xl p-5"
+              style={{ backgroundColor: CARD_BG, border: `1px solid ${CARD_BORDER}` }}
+            >
+              {transportMethod === 'cart' && manualEffort.steps !== null ? (
+                <p className="text-sm" style={{ color: TEXT_SECONDARY }}>
+                  Your team currently walks{' '}
+                  <span className="text-white font-semibold">
+                    ~{manualEffort.steps.toLocaleString(undefined, { maximumFractionDigits: 0 })} steps/day
+                  </span>{' '}
+                  on this route.
+                </p>
+              ) : (
+                manualEffort.forkliftDriveHoursPerDay !== null && (
+                  <p className="text-sm" style={{ color: TEXT_SECONDARY }}>
+                    Your operator currently spends{' '}
+                    <span className="text-white font-semibold">
+                      ~{manualEffort.forkliftDriveHoursPerDay.toFixed(1)} hrs/day
+                    </span>{' '}
+                    just driving this route.
+                  </p>
+                )
+              )}
+              <p className="text-sm mt-2" style={{ color: GREEN }}>
+                A {recommendedModel} runs this route unattended.{' '}
+                {transportMethod === 'forklift' ? 'No operator required.' : 'No walking required.'}
+              </p>
+            </div>
+          )}
         </div>
       )}
 

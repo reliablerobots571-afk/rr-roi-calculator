@@ -71,6 +71,71 @@ export function laborHoursEquivalent(units: number): { hoursPerDay: number; fteE
   }
 }
 
+const DAYS_PER_MONTH = 30.44 // 365.25 / 12, used for robot capacity since it can run every day
+
+export interface HoursReplacedResult {
+  replacedHoursPerMonth: number
+  percentOfCleaningHours: number
+  robotHoursPerMonth: number
+  actualCleaningHoursPerMonth: number
+  hasHeadroom: boolean
+}
+
+// Ties robot capacity to what the team actually spends on cleaning, instead
+// of a floating "N people/day" that ignores the entered team size entirely.
+export function reconcileHoursReplaced(
+  actualMonthlyLabourHours: number,
+  cleaningTimePercent: number, // 0-100
+  robotUnits: number
+): HoursReplacedResult {
+  const actualCleaningHoursPerMonth = actualMonthlyLabourHours * (cleaningTimePercent / 100)
+  const robotHoursPerMonth = robotUnits * ROBOT_HOURS_PER_DAY * DAYS_PER_MONTH
+  const replacedHoursPerMonth = Math.min(robotHoursPerMonth, actualCleaningHoursPerMonth)
+  const percentOfCleaningHours =
+    actualCleaningHoursPerMonth > 0 ? (replacedHoursPerMonth / actualCleaningHoursPerMonth) * 100 : 0
+
+  return {
+    replacedHoursPerMonth,
+    percentOfCleaningHours,
+    robotHoursPerMonth,
+    actualCleaningHoursPerMonth,
+    hasHeadroom: robotHoursPerMonth > actualCleaningHoursPerMonth,
+  }
+}
+
+/* ------------------- Material handling positioning ------------------- */
+
+export type TransportMethod = 'cart' | 'forklift'
+export type PayloadType = 'pallets' | 'bins' | 'boxes'
+
+const AVERAGE_STRIDE_METERS = 0.762 // ~2.5ft, standard adult walking stride
+// ASSUMPTION: no public/sourced figure for typical warehouse forklift travel
+// speed. Using a commonly cited ~7 km/h safe-operating average. Confirm with
+// Johnny before treating this as a real number in front of a prospect.
+const FORKLIFT_METERS_PER_HOUR = 7000
+
+export interface ManualEffortResult {
+  totalDistanceMetersPerDay: number
+  steps: number | null
+  forkliftDriveHoursPerDay: number | null
+}
+
+export function calculateManualEffort(
+  tripsPerDay: number,
+  avgTripLengthMeters: number,
+  transportMethod: TransportMethod
+): ManualEffortResult {
+  // Round trip per delivery, same assumption the cycle-time model uses.
+  const totalDistanceMetersPerDay = Math.max(0, tripsPerDay) * Math.max(0, avgTripLengthMeters) * 2
+
+  return {
+    totalDistanceMetersPerDay,
+    steps: transportMethod === 'cart' ? totalDistanceMetersPerDay / AVERAGE_STRIDE_METERS : null,
+    forkliftDriveHoursPerDay:
+      transportMethod === 'forklift' ? totalDistanceMetersPerDay / FORKLIFT_METERS_PER_HOUR : null,
+  }
+}
+
 // Real specs from reliablerobots.ca/cc1, /mt1, /bg1 — "Covered/All-covered
 // Cleaning Mode" rate on all three, so they're apples-to-apples. Using the
 // conservative low end of each published range.
