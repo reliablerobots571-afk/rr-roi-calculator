@@ -51,6 +51,16 @@ const currency = (value: number, decimals = 0) =>
     maximumFractionDigits: decimals,
   })
 
+// Short form for chart axis ticks — "$1.2M" instead of "$1,234,567", which
+// was wide enough to run off the left edge on mobile.
+const currencyCompact = (value: number) =>
+  value.toLocaleString('en-CA', {
+    style: 'currency',
+    currency: 'CAD',
+    notation: 'compact',
+    maximumFractionDigits: 1,
+  })
+
 const METHOD_TITLES: Record<CalculationMethod, string> = {
   hours: 'I know my monthly hours',
   team: 'I know my team size',
@@ -91,7 +101,7 @@ export default function Home() {
 
   const [method, setMethod] = useState<CalculationMethod | null>(null)
 
-  const [monthlyHours, setMonthlyHours] = useState('')
+  const [monthlyHours, setMonthlyHours] = useState('173.3')
   const [hourlyWageHours, setHourlyWageHours] = useState(String(DEFAULT_HOURLY_WAGE))
 
   const [teamSize, setTeamSize] = useState('')
@@ -113,7 +123,8 @@ export default function Home() {
   const [spaceHazards, setSpaceHazards] = useState<SpaceHazard[]>([])
 
   const [payloadKg, setPayloadKg] = useState('')
-  const [tripsPerDay, setTripsPerDay] = useState('')
+  const [tripsPerLocation, setTripsPerLocation] = useState('')
+  const [locationsCount, setLocationsCount] = useState('1')
   const [avgTripLength, setAvgTripLength] = useState('')
   const [workHoursPerShift, setWorkHoursPerShift] = useState('8')
   const [shiftsCount, setShiftsCount] = useState('1')
@@ -196,11 +207,16 @@ export default function Home() {
       ? recommendFacilityRobot(parseFloat(effectiveFacilitySqft) || 0, cleaningFrequency, cleaningTasks, spaceHazards)
       : null
 
+  // Matches how this actually gets scoped in the field: trips per location,
+  // per shift, times number of locations, times number of shifts.
+  const totalTripsPerDay =
+    (parseFloat(tripsPerLocation) || 0) * (parseFloat(locationsCount) || 0) * (parseFloat(shiftsCount) || 0)
+
   const handlerRecommendation: HandlerRecommendation | null =
     taskType === 'handler'
       ? recommendHandlerRobot({
           payloadKg: parseFloat(payloadKg) || 0,
-          tripsPerDay: parseFloat(tripsPerDay) || 0,
+          tripsPerDay: totalTripsPerDay,
           avgTripLengthMeters: parseFloat(avgTripLength) || 0,
           workHoursPerShift: parseFloat(workHoursPerShift) || 0,
           shifts: parseFloat(shiftsCount) || 0,
@@ -362,11 +378,14 @@ export default function Home() {
           >
             Free Tool — Reliable Robots
           </p>
-          <h1 className="font-heading text-white text-4xl md:text-[56px] leading-tight mb-6">
-            Find out how much your labour is really costing you.
+          <h1 className="font-heading text-white text-4xl md:text-[56px] leading-tight mb-4">
+            What are you looking to automate?
           </h1>
+          <p className="text-2xl md:text-3xl font-heading mb-4" style={{ color: GREEN }}>
+            Build your ROI case.
+          </p>
           <p className="text-lg" style={{ color: TEXT_SECONDARY }}>
-            Takes 2 minutes. We email you the full report.
+            Calculate your expense and explore more efficient ways to operate.
           </p>
         </div>
       </section>
@@ -484,8 +503,10 @@ export default function Home() {
                   setSpaceHazards={setSpaceHazards}
                   payloadKg={payloadKg}
                   setPayloadKg={setPayloadKg}
-                  tripsPerDay={tripsPerDay}
-                  setTripsPerDay={setTripsPerDay}
+                  tripsPerLocation={tripsPerLocation}
+                  setTripsPerLocation={setTripsPerLocation}
+                  locationsCount={locationsCount}
+                  setLocationsCount={setLocationsCount}
                   avgTripLength={avgTripLength}
                   setAvgTripLength={setAvgTripLength}
                   workHoursPerShift={workHoursPerShift}
@@ -678,6 +699,14 @@ function Step2(props: {
   } = props
 
   const animated = useCountUp(monthlyLabourCost, 800)
+  const [peopleCount, setPeopleCount] = useState(1)
+
+  const STANDARD_MONTHLY_HOURS = 173.3
+
+  function snapToPeople(n: number) {
+    setPeopleCount(n)
+    setMonthlyHours((STANDARD_MONTHLY_HOURS * n).toFixed(1))
+  }
 
   return (
     <div className="max-w-[640px] mx-auto">
@@ -691,6 +720,20 @@ function Step2(props: {
       <div className="flex flex-col gap-6">
         {method === 'hours' && (
           <>
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs uppercase tracking-wide" style={{ color: TEXT_SECONDARY }}>
+                  Team size snap — {peopleCount} {peopleCount === 1 ? 'person' : 'people'} standard month
+                </span>
+                <span className="font-semibold" style={{ color: GREEN }}>
+                  {(STANDARD_MONTHLY_HOURS * peopleCount).toFixed(1)}h
+                </span>
+              </div>
+              <Slider min={1} max={10} step={1} value={peopleCount} onChange={snapToPeople} />
+              <p className="text-xs mt-2" style={{ color: TEXT_SECONDARY }}>
+                Snaps the field below to {STANDARD_MONTHLY_HOURS}h × team size — still editable directly.
+              </p>
+            </div>
             <DarkField
               label="Monthly labour hours"
               type="number"
@@ -814,8 +857,10 @@ function Step3({
   setSpaceHazards,
   payloadKg,
   setPayloadKg,
-  tripsPerDay,
-  setTripsPerDay,
+  tripsPerLocation,
+  setTripsPerLocation,
+  locationsCount,
+  setLocationsCount,
   avgTripLength,
   setAvgTripLength,
   workHoursPerShift,
@@ -845,8 +890,10 @@ function Step3({
   setSpaceHazards: (v: SpaceHazard[]) => void
   payloadKg: string
   setPayloadKg: (v: string) => void
-  tripsPerDay: string
-  setTripsPerDay: (v: string) => void
+  tripsPerLocation: string
+  setTripsPerLocation: (v: string) => void
+  locationsCount: string
+  setLocationsCount: (v: string) => void
   avgTripLength: string
   setAvgTripLength: (v: string) => void
   workHoursPerShift: string
@@ -951,13 +998,31 @@ function Step3({
               value={payloadKg}
               onChange={setPayloadKg}
             />
-            <DarkField
-              label="Trips per day"
-              type="number"
-              placeholder="e.g. 60"
-              value={tripsPerDay}
-              onChange={setTripsPerDay}
-            />
+            <div className="grid grid-cols-2 gap-4">
+              <DarkField
+                label="Trips per location (per shift)"
+                type="number"
+                placeholder="e.g. 20"
+                value={tripsPerLocation}
+                onChange={setTripsPerLocation}
+              />
+              <DarkField
+                label="Number of locations"
+                type="number"
+                placeholder="e.g. 5"
+                value={locationsCount}
+                onChange={setLocationsCount}
+              />
+            </div>
+            {parseFloat(tripsPerLocation) > 0 && parseFloat(locationsCount) > 0 && parseFloat(shiftsCount) > 0 && (
+              <p className="text-xs -mt-3" style={{ color: TEXT_SECONDARY }}>
+                {tripsPerLocation} trips × {locationsCount} locations × {shiftsCount} shifts ={' '}
+                <span style={{ color: GREEN }}>
+                  {(parseFloat(tripsPerLocation) * parseFloat(locationsCount) * parseFloat(shiftsCount)).toFixed(0)}
+                </span>{' '}
+                trips/day required
+              </p>
+            )}
             <DarkField
               label="Average trip length (meters)"
               type="number"
@@ -1184,7 +1249,7 @@ function Step4({
           </div>
           <div style={{ width: '100%', height: 320 }}>
             <ResponsiveContainer>
-              <LineChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+              <LineChart data={chartData} margin={{ top: 10, right: 10, left: -12, bottom: 0 }}>
                 <CartesianGrid stroke="rgba(255,255,255,0.06)" />
                 <XAxis
                   dataKey="name"
@@ -1194,9 +1259,10 @@ function Step4({
                 />
                 <YAxis
                   tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 12 }}
-                  tickFormatter={(value: number) => `$${value.toLocaleString()}`}
+                  tickFormatter={(value: number) => currencyCompact(value)}
                   axisLine={{ stroke: 'rgba(255,255,255,0.1)' }}
                   tickLine={false}
+                  width={56}
                 />
                 <Tooltip
                   contentStyle={{
