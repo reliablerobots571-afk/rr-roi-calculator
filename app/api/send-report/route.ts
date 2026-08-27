@@ -1,6 +1,6 @@
 import { Resend } from 'resend'
 import { NextResponse } from 'next/server'
-import { RobotCategory } from '@/lib/calculations'
+import { FacilityModel, HandlerModel, RobotCategory } from '@/lib/calculations'
 
 const NAVY = '#081520'
 const GREEN = '#00BF63'
@@ -20,7 +20,7 @@ interface SendReportBody {
   tenYearSavings: number
   breakEvenYear: number | null
   robotCategory: RobotCategory
-  robotModel: 'CC1' | 'MT1' | 'T300' | 'T600' | null
+  robotModel: FacilityModel | HandlerModel | null
   robotUnits: number
   robotPrice: number
 }

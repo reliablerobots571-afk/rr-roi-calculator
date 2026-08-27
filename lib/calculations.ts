@@ -42,7 +42,7 @@ export function calculateMonthlyLabourCost(
 
 export type RobotCategory = 'facility' | 'handler'
 export type FacilityModel = 'CC1' | 'MT1' | 'MT1 Max' | 'BG1' | 'BG1 Pro'
-export type HandlerModel = 'T300' | 'T600'
+export type HandlerModel = 'T300' | 'T600' | 'FOLA'
 export type CleaningFrequency = 'daily' | 'weekly'
 export type MaintenanceTier = 'standard' | 'heavy'
 export type CleaningTask = 'sweeping' | 'scrubbing'
@@ -159,10 +159,19 @@ const BG1_HOURS_PER_DAY = 7.5 // real: max Sweeping & Scrubbing runtime
 // perception/obstacle-detection hardware, same as MT1 vs MT1 Max.
 
 // Real per-product payload specs (see note above on the 600kg/800kg conflict).
-const HANDLER_PAYLOAD_MAX_KG: Record<HandlerModel, number> = {
+const HANDLER_PAYLOAD_MAX_KG: Record<'T300' | 'T600', number> = {
   T300: 300,
   T600: 800,
 }
+
+// Real spec from reliablerobots.ca/autonomous-forklift: the FOLA line spans
+// 300-2000kg across 5 variants (SN300/SN600/DN1416/QN1416/BN2001), built for
+// rack-aisle navigation and precise pallet alignment, i.e. a genuinely
+// different product than the general-purpose T-series. Not distinguishing
+// between the specific FOLA sub-models here (DN vs QN at the same 1400kg
+// isn't something the scraped spec explains), just capping at the line's
+// real max payload.
+const FOLA_MAX_PAYLOAD_KG = 2000
 
 export interface FacilityRecommendation {
   model: FacilityModel
@@ -202,9 +211,17 @@ export function recommendFacilityRobot(
     const bg1UnitsNeeded = Math.max(1, Math.ceil(sqftPerWeekNeeded / sqftPerWeekPerBG1))
     const model: FacilityModel = hasHazard ? 'BG1 Pro' : 'BG1'
 
-    const note = needsBoth
+    let note = needsBoth
       ? `Sweeping + scrubbing both needed. ${model} does both in one pass instead of two. Roughly equivalent to ${ccUnitsNeeded}x CC1 running each pass separately.`
       : `Roughly equivalent to ${ccUnitsNeeded}x CC1.`
+
+    // At real scale, a mixed fleet (bulk-area unit + a CC1 for corners and
+    // detail work) is a legitimate configuration, but the exact split isn't
+    // something this tool can compute confidently, so it's a suggestion to
+    // raise with the team, not a separate computed recommendation.
+    if (bg1UnitsNeeded > 1) {
+      note += ` At this scale, some facilities pair ${model} for bulk coverage with a CC1 for tight corners and detail work. Ask the team if a mixed fleet fits your layout.`
+    }
 
     return { model, units: bg1UnitsNeeded, note }
   }
@@ -220,20 +237,39 @@ export interface HandlerRecommendation {
   model: HandlerModel
   units: number
   cycleTime: { requiredTripsPerDay: number; achievableTripsPerUnit: number }
+  note: string | null
 }
 
 export function recommendHandlerRobot(params: {
   payloadKg: number
+  payloadType: PayloadType
   tripsPerDay: number
   avgTripLengthMeters: number
   workHoursPerShift: number
   shifts: number
   avgSpeedMps: number // 0.5 - 1.25, default 1
 }): HandlerRecommendation {
-  const { payloadKg, tripsPerDay, avgTripLengthMeters, workHoursPerShift, shifts, avgSpeedMps } =
+  const { payloadKg, payloadType, tripsPerDay, avgTripLengthMeters, workHoursPerShift, shifts, avgSpeedMps } =
     params
 
-  const model: HandlerModel = payloadKg <= HANDLER_PAYLOAD_MAX_KG.T300 ? 'T300' : 'T600'
+  let model: HandlerModel
+  let note: string | null = null
+
+  if (payloadType === 'pallets') {
+    // Real product distinction, not just a weight cutoff: FOLA is built for
+    // rack-aisle navigation and precise pallet alignment. T300/T600 are
+    // general-purpose delivery robots, not pallet handlers.
+    model = 'FOLA'
+    note =
+      payloadKg <= HANDLER_PAYLOAD_MAX_KG.T300
+        ? 'Palletized loads route to the FOLA autonomous forklift line (built for rack-aisle navigation and pallet alignment), not T300/T600. A T300 Lift variant also exists for lighter pallet transfer to workstations, worth asking the team about for this weight.'
+        : 'Palletized loads route to the FOLA autonomous forklift line (300-2000kg across 5 variants), built for rack-aisle navigation and precise pallet alignment, not the general-purpose T-series.'
+    if (payloadKg > FOLA_MAX_PAYLOAD_KG) {
+      note += ` Note: ${payloadKg}kg is above FOLA's largest published variant (2000kg), confirm with the team.`
+    }
+  } else {
+    model = payloadKg <= HANDLER_PAYLOAD_MAX_KG.T300 ? 'T300' : 'T600'
+  }
 
   const speed = Math.min(1.25, Math.max(0.5, avgSpeedMps || 1))
   const availableSeconds = Math.max(0, workHoursPerShift) * Math.max(0, shifts) * 3600
@@ -254,6 +290,7 @@ export function recommendHandlerRobot(params: {
       requiredTripsPerDay: tripsPerDay,
       achievableTripsPerUnit: Math.round(achievableTripsPerUnit),
     },
+    note,
   }
 }
 

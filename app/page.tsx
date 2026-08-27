@@ -143,6 +143,7 @@ export default function Home() {
   const [avgSpeed, setAvgSpeed] = useState(1)
   const [transportMethod, setTransportMethod] = useState<TransportMethod>('cart')
   const [payloadType, setPayloadType] = useState<PayloadType>('pallets')
+  const [timeMaterialHandling, setTimeMaterialHandling] = useState(100)
 
   const [maintenanceTier, setMaintenanceTier] = useState<MaintenanceTier>('standard')
 
@@ -230,6 +231,7 @@ export default function Home() {
     taskType === 'handler'
       ? recommendHandlerRobot({
           payloadKg: parseFloat(payloadKg) || 0,
+          payloadType,
           tripsPerDay: totalTripsPerDay,
           avgTripLengthMeters: parseFloat(avgTripLength) || 0,
           workHoursPerShift: parseFloat(workHoursPerShift) || 0,
@@ -279,8 +281,12 @@ export default function Home() {
   const cleaningTimePercent = Math.min(100, timeSweeping + timeMopping + timeScrubbing + timeVacuuming)
 
   const hoursReplaced =
-    taskType === 'facility' && hasConfidentRecommendation && knownMonthlyHours !== null && knownMonthlyHours > 0
-      ? reconcileHoursReplaced(knownMonthlyHours, cleaningTimePercent, recommendedUnits)
+    hasConfidentRecommendation && knownMonthlyHours !== null && knownMonthlyHours > 0
+      ? taskType === 'facility'
+        ? reconcileHoursReplaced(knownMonthlyHours, cleaningTimePercent, recommendedUnits)
+        : taskType === 'handler'
+          ? reconcileHoursReplaced(knownMonthlyHours, timeMaterialHandling, recommendedUnits)
+          : null
       : null
 
   const manualEffort =
@@ -564,6 +570,8 @@ export default function Home() {
                   setTransportMethod={setTransportMethod}
                   payloadType={payloadType}
                   setPayloadType={setPayloadType}
+                  timeMaterialHandling={timeMaterialHandling}
+                  setTimeMaterialHandling={setTimeMaterialHandling}
                   hasRecommendationInput={hasRecommendationInput}
                   facilityRecommendation={facilityRecommendation}
                   handlerRecommendation={handlerRecommendation}
@@ -935,6 +943,8 @@ function Step3({
   setTransportMethod,
   payloadType,
   setPayloadType,
+  timeMaterialHandling,
+  setTimeMaterialHandling,
   hasRecommendationInput,
   facilityRecommendation,
   handlerRecommendation,
@@ -980,6 +990,8 @@ function Step3({
   setTransportMethod: (v: TransportMethod) => void
   payloadType: PayloadType
   setPayloadType: (v: PayloadType) => void
+  timeMaterialHandling: number
+  setTimeMaterialHandling: (v: number) => void
   hasRecommendationInput: boolean
   facilityRecommendation: FacilityRecommendation | null
   handlerRecommendation: HandlerRecommendation | null
@@ -1184,6 +1196,20 @@ function Step3({
               </div>
               <Slider min={0.5} max={1.25} step={0.05} value={avgSpeed} onChange={setAvgSpeed} />
             </div>
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs uppercase tracking-wide" style={{ color: TEXT_SECONDARY }}>
+                  % of team&apos;s time on this material transport
+                </span>
+                <span className="font-semibold" style={{ color: GREEN }}>
+                  {timeMaterialHandling}%
+                </span>
+              </div>
+              <Slider min={5} max={100} step={5} value={timeMaterialHandling} onChange={setTimeMaterialHandling} />
+              <p className="text-xs mt-2" style={{ color: TEXT_SECONDARY }}>
+                Lower this if moving this material is only part of the job.
+              </p>
+            </div>
           </div>
         )}
 
@@ -1221,6 +1247,11 @@ function Step3({
                 <p className="text-sm mb-1" style={{ color: TEXT_SECONDARY }}>
                   One unit achieves ~{handlerRecommendation.cycleTime.achievableTripsPerUnit} trips/day vs{' '}
                   {handlerRecommendation.cycleTime.requiredTripsPerDay} required, so recommendation scales up.
+                </p>
+              )}
+              {handlerRecommendation.note && (
+                <p className="text-sm mb-1" style={{ color: TEXT_SECONDARY }}>
+                  {handlerRecommendation.note}
                 </p>
               )}
             </>
@@ -1362,7 +1393,7 @@ function Step4({
             <StatCard label="Monthly Labour Cost" value={currency(monthlyLabourCost, 0)} color="#ffffff" />
             <StatCard label="1-Year Savings" value={currency(oneYearSavings, 0)} color={GREEN} />
             <StatCard
-              label={hoursReplaced ? 'Cleaning Hours Replaced' : 'Labour Hours Replaced'}
+              label={hoursReplaced ? 'Hours Replaced' : 'Labour Hours Replaced'}
               value={
                 hoursReplaced
                   ? `~${hoursReplaced.replacedHoursPerMonth.toFixed(0)}h/mo (${hoursReplaced.percentOfCleaningHours.toFixed(0)}%)`
