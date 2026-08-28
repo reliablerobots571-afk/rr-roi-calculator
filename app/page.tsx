@@ -1053,6 +1053,13 @@ function Step3({
   }
   const rawCleaningTimeTotal = timeSweeping + timeMopping + timeScrubbing + timeVacuuming
 
+  // The $399/mo and $24,000 anchors are CC1's and T300's own disclosed
+  // numbers specifically. BG1/BG1 Pro/MT1/MT1 Max/T600/FOLA are bigger,
+  // pricier units, RR just doesn't publish a specific number for them, so
+  // showing the base-tier anchors for those would be misleading.
+  const currentModel = facilityRecommendation?.model ?? handlerRecommendation?.model ?? null
+  const isBaseTierModel = currentModel === 'CC1' || currentModel === 'T300'
+
   return (
     <div className="max-w-[640px] mx-auto">
       <BackLink onClick={onBack} />
@@ -1310,9 +1317,17 @@ function Step3({
             </p>
           )}
 
-          <p className="text-sm font-medium mt-3" style={{ color: GREEN }}>
-            From {currency(RAAS_MONTHLY_ANCHOR)}/month (RaaS) · From {currency(BUY_PRICE_ANCHOR)} (buy outright)
-          </p>
+          {isBaseTierModel ? (
+            <p className="text-sm font-medium mt-3" style={{ color: GREEN }}>
+              From {currency(RAAS_MONTHLY_ANCHOR)}/month (RaaS) · From {currency(BUY_PRICE_ANCHOR)} (buy outright)
+            </p>
+          ) : (
+            currentModel && (
+              <p className="text-sm font-medium mt-3" style={{ color: GREEN }}>
+                Custom pricing for {currentModel}
+              </p>
+            )
+          )}
           <p className="text-xs mt-1" style={{ color: TEXT_SECONDARY }}>
             Exact pricing is confirmed with the Reliable Robots team.
           </p>
