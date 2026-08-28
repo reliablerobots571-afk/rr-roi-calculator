@@ -118,6 +118,7 @@ export default function Home() {
 
   const [sqft, setSqft] = useState('')
   const [costPerSqft, setCostPerSqft] = useState('')
+  const [monthlyCleaningCost, setMonthlyCleaningCost] = useState('')
 
   const [monthlyCostInput, setMonthlyCostInput] = useState('')
 
@@ -168,6 +169,36 @@ export default function Home() {
   function selectMethod(m: CalculationMethod) {
     setMethod(m)
     goTo(3, 'forward')
+  }
+
+  // Three linked fields: sqft, cost/sqft, and total monthly cost. Editing
+  // cost/sqft or the total recomputes the other from sqft; editing sqft
+  // keeps the rate fixed and recomputes the total.
+  function handleSqftChange(v: string) {
+    setSqft(v)
+    const sq = parseFloat(v)
+    const rate = parseFloat(costPerSqft)
+    if (sq > 0 && !isNaN(rate)) {
+      setMonthlyCleaningCost((sq * rate).toFixed(2))
+    }
+  }
+
+  function handleCostPerSqftChange(v: string) {
+    setCostPerSqft(v)
+    const sq = parseFloat(sqft)
+    const rate = parseFloat(v)
+    if (sq > 0 && !isNaN(rate)) {
+      setMonthlyCleaningCost((sq * rate).toFixed(2))
+    }
+  }
+
+  function handleMonthlyCleaningCostChange(v: string) {
+    setMonthlyCleaningCost(v)
+    const sq = parseFloat(sqft)
+    const total = parseFloat(v)
+    if (sq > 0 && !isNaN(total)) {
+      setCostPerSqft((total / sq).toFixed(4))
+    }
   }
 
   // Don't ask for square footage twice — if they already gave it for the
@@ -521,9 +552,11 @@ export default function Home() {
                   hourlyWageTeam={hourlyWageTeam}
                   setHourlyWageTeam={setHourlyWageTeam}
                   sqft={sqft}
-                  setSqft={setSqft}
+                  setSqft={handleSqftChange}
                   costPerSqft={costPerSqft}
-                  setCostPerSqft={setCostPerSqft}
+                  setCostPerSqft={handleCostPerSqftChange}
+                  monthlyCleaningCost={monthlyCleaningCost}
+                  setMonthlyCleaningCost={handleMonthlyCleaningCostChange}
                   monthlyCostInput={monthlyCostInput}
                   setMonthlyCostInput={setMonthlyCostInput}
                 />
@@ -733,6 +766,8 @@ function Step2(props: {
   setSqft: (v: string) => void
   costPerSqft: string
   setCostPerSqft: (v: string) => void
+  monthlyCleaningCost: string
+  setMonthlyCleaningCost: (v: string) => void
   monthlyCostInput: string
   setMonthlyCostInput: (v: string) => void
 }) {
@@ -756,6 +791,8 @@ function Step2(props: {
     setSqft,
     costPerSqft,
     setCostPerSqft,
+    monthlyCleaningCost,
+    setMonthlyCleaningCost,
     monthlyCostInput,
     setMonthlyCostInput,
   } = props
@@ -848,6 +885,16 @@ function Step2(props: {
               onChange={setSqft}
               autoFocus
             />
+            <DarkField
+              label="Estimated monthly cleaning cost CAD$"
+              type="number"
+              placeholder="e.g. 750"
+              value={monthlyCleaningCost}
+              onChange={setMonthlyCleaningCost}
+            />
+            <p className="text-xs -mt-3" style={{ color: TEXT_SECONDARY }}>
+              Fill in either this or cost per sq ft below. Whichever you type, the other fills in.
+            </p>
             <DarkField
               label="Cost per sq ft per month CAD$"
               type="number"
