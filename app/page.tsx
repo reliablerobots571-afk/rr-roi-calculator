@@ -668,9 +668,9 @@ export default function Home() {
 function StepTaskType({ onSelect }: { onSelect: (t: RobotCategory) => void }) {
   return (
     <div className="max-w-[640px] mx-auto">
-      <h2 className="font-heading text-white text-3xl mb-3">What&apos;s costing you the most labour?</h2>
+      <h2 className="font-heading text-white text-3xl mb-3">Cleaning floors, or moving things?</h2>
       <p className="mb-10" style={{ color: TEXT_SECONDARY }}>
-        Pick your biggest time-sink. We&apos;ll match you to the right robot for it.
+        Pick one. We&apos;ll show you the robot and the numbers.
       </p>
 
       <div className="flex flex-col gap-4">
