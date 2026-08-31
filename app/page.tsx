@@ -130,6 +130,8 @@ export default function Home() {
   const [cleaningFrequency, setCleaningFrequency] = useState<CleaningFrequency>('weekly')
   const [cleaningTasks, setCleaningTasks] = useState<CleaningTask[]>([])
   const [spaceHazards, setSpaceHazards] = useState<SpaceHazard[]>([])
+  const [facilityHoursPerShift, setFacilityHoursPerShift] = useState('5')
+  const [facilityShifts, setFacilityShifts] = useState('1')
   const [timeSweeping, setTimeSweeping] = useState(25)
   const [timeMopping, setTimeMopping] = useState(25)
   const [timeScrubbing, setTimeScrubbing] = useState(25)
@@ -250,7 +252,14 @@ export default function Home() {
 
   const facilityRecommendation: FacilityRecommendation | null =
     taskType === 'facility'
-      ? recommendFacilityRobot(parseFloat(effectiveFacilitySqft) || 0, cleaningFrequency, cleaningTasks, spaceHazards)
+      ? recommendFacilityRobot(
+          parseFloat(effectiveFacilitySqft) || 0,
+          cleaningFrequency,
+          cleaningTasks,
+          spaceHazards,
+          parseFloat(facilityHoursPerShift) || 0,
+          parseFloat(facilityShifts) || 0
+        )
       : null
 
   // Matches how this actually gets scoped in the field: trips per location,
@@ -577,6 +586,10 @@ export default function Home() {
                   setCleaningTasks={setCleaningTasks}
                   spaceHazards={spaceHazards}
                   setSpaceHazards={setSpaceHazards}
+                  facilityHoursPerShift={facilityHoursPerShift}
+                  setFacilityHoursPerShift={setFacilityHoursPerShift}
+                  facilityShifts={facilityShifts}
+                  setFacilityShifts={setFacilityShifts}
                   timeSweeping={timeSweeping}
                   setTimeSweeping={setTimeSweeping}
                   timeMopping={timeMopping}
@@ -964,6 +977,10 @@ function Step3({
   setCleaningTasks,
   spaceHazards,
   setSpaceHazards,
+  facilityHoursPerShift,
+  setFacilityHoursPerShift,
+  facilityShifts,
+  setFacilityShifts,
   timeSweeping,
   setTimeSweeping,
   timeMopping,
@@ -1011,6 +1028,10 @@ function Step3({
   setCleaningTasks: (v: CleaningTask[]) => void
   spaceHazards: SpaceHazard[]
   setSpaceHazards: (v: SpaceHazard[]) => void
+  facilityHoursPerShift: string
+  setFacilityHoursPerShift: (v: string) => void
+  facilityShifts: string
+  setFacilityShifts: (v: string) => void
   timeSweeping: number
   setTimeSweeping: (v: number) => void
   timeMopping: number
@@ -1115,6 +1136,25 @@ function Step3({
                 />
               </div>
             </div>
+            <div className="grid grid-cols-2 gap-4">
+              <DarkField
+                label="Hours per shift"
+                type="number"
+                placeholder="e.g. 5"
+                value={facilityHoursPerShift}
+                onChange={setFacilityHoursPerShift}
+              />
+              <DarkField
+                label="Shifts per day"
+                type="number"
+                placeholder="e.g. 1"
+                value={facilityShifts}
+                onChange={setFacilityShifts}
+              />
+            </div>
+            <p className="text-xs -mt-3" style={{ color: TEXT_SECONDARY }}>
+              More shifts means the robot runs multiple times per day, e.g. 2 shifts for a facility that needs coverage both morning and evening.
+            </p>
             <div>
               <span className="text-xs uppercase tracking-wide mb-2 block" style={{ color: TEXT_SECONDARY }}>
                 Required cleaning: check all that apply
@@ -1122,6 +1162,7 @@ function Step3({
               <div className="flex gap-3">
                 <Pill label="Sweeping" selected={cleaningTasks.includes('sweeping')} onClick={() => toggleTask('sweeping')} />
                 <Pill label="Scrubbing" selected={cleaningTasks.includes('scrubbing')} onClick={() => toggleTask('scrubbing')} />
+                <Pill label="Carpet vacuuming" selected={cleaningTasks.includes('vacuuming')} onClick={() => toggleTask('vacuuming')} />
               </div>
             </div>
             <div>
@@ -1269,7 +1310,7 @@ function Step3({
 
         <div className="rounded-xl p-6" style={{ backgroundColor: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
           <p className="text-xs uppercase tracking-wide mb-3" style={{ color: TEXT_SECONDARY }}>
-            Recommended
+            {taskType === 'facility' && facilityRecommendation ? facilityRecommendation.label : 'Recommended'}
           </p>
           {hasRecommendationInput && taskType === 'facility' && facilityRecommendation ? (
             <>
@@ -1285,6 +1326,16 @@ function Step3({
                 <p className="text-sm mb-1" style={{ color: TEXT_SECONDARY }}>
                   {facilityRecommendation.note}
                 </p>
+              )}
+              {facilityRecommendation.altOption && (
+                <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${CARD_BORDER}` }}>
+                  <p className="text-xs uppercase tracking-wide mb-2" style={{ color: TEXT_SECONDARY }}>
+                    {facilityRecommendation.altOption.label}
+                  </p>
+                  <p className="text-sm" style={{ color: TEXT_SECONDARY }}>
+                    {facilityRecommendation.altOption.description}
+                  </p>
+                </div>
               )}
             </>
           ) : hasRecommendationInput && taskType === 'handler' && handlerRecommendation ? (

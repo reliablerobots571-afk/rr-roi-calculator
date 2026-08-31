@@ -45,7 +45,7 @@ export type FacilityModel = 'CC1' | 'MT1' | 'MT1 Max' | 'BG1' | 'BG1 Pro'
 export type HandlerModel = 'T300' | 'T600' | 'FOLA'
 export type CleaningFrequency = 'daily' | 'weekly'
 export type MaintenanceTier = 'standard' | 'heavy'
-export type CleaningTask = 'sweeping' | 'scrubbing'
+export type CleaningTask = 'sweeping' | 'scrubbing' | 'vacuuming'
 export type SpaceHazard = 'forklifts' | 'vehicles'
 
 export const BUY_PRICE_ANCHOR = 24000 // T300 buy-outright anchor, quoted for "all robots"
@@ -136,25 +136,24 @@ export function calculateManualEffort(
   }
 }
 
-// Real specs from reliablerobots.ca/cc1, /mt1, /bg1 — "Covered/All-covered
-// Cleaning Mode" rate on all three, so they're apples-to-apples. Using the
-// conservative low end of each published range.
-const CC1_SQFT_PER_HOUR = 7534.74 // 700 m²/h low end (range: 700-1000 m²/h)
-const CC1_HOURS_PER_DAY = 5 // real: general combined-mode battery runtime (range: 4-9h by mode)
+// Real specs from reliablerobots.ca/cc1, /mt1, /bg1. Using the conservative
+// low end of each published range where a range exists.
+const CC1_SQFT_PER_HOUR = 7534.74 // 700 m²/h low end, Covered Cleaning Mode
 
-// MT1 (19,375 sqft/h, 4h runtime) isn't used as a pick here — BG1's real
-// numbers (21,528 sqft/h, 7.5h runtime) beat it on both throughput and
-// runtime, so BG1 is the better "next tier up from CC1" by the numbers we
-// have. MT1/MT1 Max stay in the FacilityModel type in case Johnny wants
-// them reintroduced for a reason this model doesn't capture (e.g. dry-only
-// industrial cleaning vs BG1's wet sweep+scrub).
+// MT1's real spec sheet publishes TWO distinct rates: All-covered Cleaning
+// Mode (19,375 sqft/h, thorough wet pass) and Spot Cleaning Mode (64,583.46
+// sqft/h, faster dry debris sweep). For sweeping-only jobs, Spot Cleaning is
+// the right comparison, not All-covered. Confirmed against Johnny's own
+// worked example (200,000 sqft, 3.5h x 2 shifts -> ~2x/day coverage).
+const MT1_SPOT_SQFT_PER_HOUR = 64583.46
 
 // BG1's real, defining feature: sweeps AND scrubs in ONE pass ("By sweeping
 // in the front and scrubbing in the rear, it eliminates the need for
 // multiple cleaning passes"). CC1 does one function per pass — if a job
 // needs both, it has to run the space twice, halving effective coverage.
+// Also confirmed against Johnny's worked example for BG1 Pro (200,000 sqft,
+// 5h x 2 shifts -> ~1x/day full scrub coverage).
 const BG1_SQFT_PER_HOUR = 21528 // Covered Cleaning Mode
-const BG1_HOURS_PER_DAY = 7.5 // real: max Sweeping & Scrubbing runtime
 // BG1 Pro shares BG1's cleaning performance — the Pro difference is
 // perception/obstacle-detection hardware, same as MT1 vs MT1 Max.
 
@@ -173,10 +172,17 @@ const HANDLER_PAYLOAD_MAX_KG: Record<'T300' | 'T600', number> = {
 // real max payload.
 const FOLA_MAX_PAYLOAD_KG = 2000
 
+export interface FacilityAltOption {
+  label: string
+  description: string
+}
+
 export interface FacilityRecommendation {
+  label: string
   model: FacilityModel
   units: number
   note: string | null
+  altOption: FacilityAltOption | null
 }
 
 // Above this many CC1 units, BG1 (real ~4x weekly capacity once its longer
@@ -187,50 +193,99 @@ export function recommendFacilityRobot(
   sqft: number,
   frequency: CleaningFrequency,
   cleaningTasks: CleaningTask[],
-  hazards: SpaceHazard[]
+  hazards: SpaceHazard[],
+  hoursPerShift: number,
+  shiftsPerDay: number
 ): FacilityRecommendation {
   const passesPerWeek = frequency === 'daily' ? 7 : 1
   const sqftPerWeekNeeded = Math.max(0, sqft) * passesPerWeek
 
-  const needsBoth = cleaningTasks.includes('sweeping') && cleaningTasks.includes('scrubbing')
+  const hours = Math.max(0, hoursPerShift)
+  const shifts = Math.max(0, shiftsPerDay)
+  const weeklyCapacity = (ratePerHour: number) => ratePerHour * hours * shifts * 7
+
+  const needsSweep = cleaningTasks.includes('sweeping')
+  // ASSUMPTION: no separate real throughput figure for vacuuming on any of
+  // these models, so it's treated like scrubbing (a thorough wet/detail
+  // pass, not a fast dry sweep) for sizing purposes. Confirm with Johnny.
+  const needsScrubLike = cleaningTasks.includes('scrubbing') || cleaningTasks.includes('vacuuming')
   const hasHazard = hazards.length > 0
 
-  // CC1 needs a second pass to cover a second cleaning function — halves
-  // its effective weekly capacity. BG1/BG1 Pro don't take this hit (built
-  // to sweep and scrub in one pass).
-  const passPenalty = needsBoth ? 2 : 1
-  const sqftPerWeekPerCC1 = (CC1_SQFT_PER_HOUR * CC1_HOURS_PER_DAY * 7) / passPenalty
-  const ccUnitsNeeded = Math.max(1, Math.ceil(sqftPerWeekNeeded / sqftPerWeekPerCC1))
+  // Rule 1 (Johnny's explicit priority): hazards route to BG1 Pro
+  // regardless of cleaning type.
+  if (hasHazard) {
+    const units = Math.max(1, Math.ceil(sqftPerWeekNeeded / weeklyCapacity(BG1_SQFT_PER_HOUR)))
+    return {
+      label: 'Recommended',
+      model: 'BG1 Pro',
+      units,
+      note: 'Space has forklifts or moving vehicles. BG1 Pro is built for that (stronger obstacle detection, audible/visual alarms).',
+      altOption: null,
+    }
+  }
 
-  // BG1 is the "XL" tier once CC1 would need too many units, OR the job
-  // needs both sweeping and scrubbing (where BG1's one-pass design wins
-  // regardless of facility size). Matches "3x CC1 or 1x BG1" as a general
-  // sizing rule, not just a combo-cleaning special case.
-  if (needsBoth || ccUnitsNeeded > MAX_REASONABLE_CC1_UNITS) {
-    const sqftPerWeekPerBG1 = BG1_SQFT_PER_HOUR * BG1_HOURS_PER_DAY * 7
-    const bg1UnitsNeeded = Math.max(1, Math.ceil(sqftPerWeekNeeded / sqftPerWeekPerBG1))
-    const model: FacilityModel = hasHazard ? 'BG1 Pro' : 'BG1'
+  // Rule 2: needs both sweeping and a thorough pass (scrubbing/vacuuming).
+  // This is the real challenge case Johnny flagged: at scale, a single BG1
+  // (one-pass combo) and a split MT1 (fast sweep) + BG1 (thorough scrub)
+  // fleet are both legitimate, so both are shown as real computed options
+  // rather than picking one.
+  if (needsSweep && needsScrubLike) {
+    const bg1ComboUnits = Math.max(1, Math.ceil(sqftPerWeekNeeded / weeklyCapacity(BG1_SQFT_PER_HOUR)))
+    const mt1SplitUnits = Math.max(1, Math.ceil(sqftPerWeekNeeded / weeklyCapacity(MT1_SPOT_SQFT_PER_HOUR)))
+    const bg1SplitUnits = Math.max(1, Math.ceil(sqftPerWeekNeeded / weeklyCapacity(BG1_SQFT_PER_HOUR)))
 
-    let note = needsBoth
-      ? `Sweeping + scrubbing both needed. ${model} does both in one pass instead of two. Roughly equivalent to ${ccUnitsNeeded}x CC1 running each pass separately.`
-      : `Roughly equivalent to ${ccUnitsNeeded}x CC1.`
+    return {
+      label: 'Option 1',
+      model: 'BG1',
+      units: bg1ComboUnits,
+      note: 'Sweeps and scrubs in one pass, single-unit coverage.',
+      altOption: {
+        label: 'Option 2',
+        description: `${mt1SplitUnits}x MT1 (fast debris sweep, spot mode) + ${bg1SplitUnits}x BG1 (thorough scrub, covered mode), run on split shifts. Keeps larger debris clear throughout the day instead of just once per pass, at the cost of running two robot types.`,
+      },
+    }
+  }
 
-    // At real scale, a mixed fleet (bulk-area unit + a CC1 for corners and
-    // detail work) is a legitimate configuration, but the exact split isn't
-    // something this tool can compute confidently, so it's a suggestion to
-    // raise with the team, not a separate computed recommendation.
-    if (bg1UnitsNeeded > 1) {
-      note += ` At this scale, some facilities pair ${model} for bulk coverage with a CC1 for tight corners and detail work. Ask the team if a mixed fleet fits your layout.`
+  // Rule 3: scrubbing (or vacuuming) needed, no sweeping. Existing CC1 to
+  // BG1 escalation by scale.
+  if (needsScrubLike && !needsSweep) {
+    const ccUnitsNeeded = Math.max(1, Math.ceil(sqftPerWeekNeeded / weeklyCapacity(CC1_SQFT_PER_HOUR)))
+
+    if (ccUnitsNeeded > MAX_REASONABLE_CC1_UNITS) {
+      const bg1Units = Math.max(1, Math.ceil(sqftPerWeekNeeded / weeklyCapacity(BG1_SQFT_PER_HOUR)))
+      return {
+        label: 'Recommended',
+        model: 'BG1',
+        units: bg1Units,
+        note: `Roughly equivalent to ${ccUnitsNeeded}x CC1.`,
+        altOption: null,
+      }
     }
 
-    return { model, units: bg1UnitsNeeded, note }
+    return { label: 'Recommended', model: 'CC1', units: ccUnitsNeeded, note: null, altOption: null }
   }
 
-  return {
-    model: 'CC1',
-    units: ccUnitsNeeded,
-    note: null,
+  // Rule 4: sweeping only, no hazard. MT1 using its real Spot Cleaning
+  // Mode rate (fast dry sweep), matching Johnny's own worked example.
+  if (needsSweep && !needsScrubLike) {
+    const units = Math.max(1, Math.ceil(sqftPerWeekNeeded / weeklyCapacity(MT1_SPOT_SQFT_PER_HOUR)))
+    return { label: 'Recommended', model: 'MT1', units, note: null, altOption: null }
   }
+
+  // Fallback: no specific cleaning task checked yet. Same CC1/BG1
+  // escalation as the scrub-only case.
+  const ccUnitsNeeded = Math.max(1, Math.ceil(sqftPerWeekNeeded / weeklyCapacity(CC1_SQFT_PER_HOUR)))
+  if (ccUnitsNeeded > MAX_REASONABLE_CC1_UNITS) {
+    const bg1Units = Math.max(1, Math.ceil(sqftPerWeekNeeded / weeklyCapacity(BG1_SQFT_PER_HOUR)))
+    return {
+      label: 'Recommended',
+      model: 'BG1',
+      units: bg1Units,
+      note: `Roughly equivalent to ${ccUnitsNeeded}x CC1.`,
+      altOption: null,
+    }
+  }
+  return { label: 'Recommended', model: 'CC1', units: ccUnitsNeeded, note: null, altOption: null }
 }
 
 export interface HandlerRecommendation {
