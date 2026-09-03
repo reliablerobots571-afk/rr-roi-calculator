@@ -22,6 +22,7 @@ import {
   CleaningFrequency,
   CleaningTask,
   DEFAULT_HOURLY_WAGE,
+  determineMaintenanceTier,
   FacilityModel,
   FacilityRecommendation,
   HandlerModel,
@@ -130,7 +131,7 @@ export default function Home() {
   const [cleaningFrequency, setCleaningFrequency] = useState<CleaningFrequency>('weekly')
   const [cleaningTasks, setCleaningTasks] = useState<CleaningTask[]>([])
   const [spaceHazards, setSpaceHazards] = useState<SpaceHazard[]>([])
-  const [facilityHoursPerShift, setFacilityHoursPerShift] = useState('5')
+  const [facilityHoursPerShift, setFacilityHoursPerShift] = useState('8')
   const [facilityShifts, setFacilityShifts] = useState('1')
   const [timeSweeping, setTimeSweeping] = useState(25)
   const [timeMopping, setTimeMopping] = useState(25)
@@ -147,8 +148,6 @@ export default function Home() {
   const [transportMethod, setTransportMethod] = useState<TransportMethod>('cart')
   const [payloadType, setPayloadType] = useState<PayloadType>('pallets')
   const [timeMaterialHandling, setTimeMaterialHandling] = useState(100)
-
-  const [maintenanceTier, setMaintenanceTier] = useState<MaintenanceTier>('standard')
 
   const [firstName, setFirstName] = useState('')
   const [email, setEmail] = useState('')
@@ -294,6 +293,10 @@ export default function Home() {
   // pricing — "T300 from $24,000 CAD, all robots available" is the real,
   // universal anchor they quote, so that's what drives the 10-year estimate.
   const robotPrice = hasConfidentRecommendation ? BUY_PRICE_ANCHOR * recommendedUnits : 0
+  // No longer a manual pick — derived from how hard the recommended fleet
+  // is actually working (>=75% of its own weekly capacity = heavy duty).
+  const activeUtilization = facilityRecommendation?.utilizationPercent ?? handlerRecommendation?.utilizationPercent ?? 0
+  const maintenanceTier: MaintenanceTier = determineMaintenanceTier(activeUtilization)
   const annualMaintenance = MAINTENANCE_COST[maintenanceTier]
 
   const tenYearData = hasResult
@@ -622,7 +625,7 @@ export default function Home() {
                   facilityRecommendation={facilityRecommendation}
                   handlerRecommendation={handlerRecommendation}
                   maintenanceTier={maintenanceTier}
-                  setMaintenanceTier={setMaintenanceTier}
+                  activeUtilization={activeUtilization}
                 />
               )}
 
@@ -1013,7 +1016,7 @@ function Step3({
   facilityRecommendation,
   handlerRecommendation,
   maintenanceTier,
-  setMaintenanceTier,
+  activeUtilization,
 }: {
   onBack: () => void
   onNext: () => void
@@ -1064,10 +1067,36 @@ function Step3({
   facilityRecommendation: FacilityRecommendation | null
   handlerRecommendation: HandlerRecommendation | null
   maintenanceTier: MaintenanceTier
-  setMaintenanceTier: (v: MaintenanceTier) => void
+  activeUtilization: number
 }) {
+  const TASK_ORDER: CleaningTask[] = ['sweeping', 'mopping', 'scrubbing', 'vacuuming']
+  const TIME_SETTERS: Record<CleaningTask, (v: number) => void> = {
+    sweeping: setTimeSweeping,
+    mopping: setTimeMopping,
+    scrubbing: setTimeScrubbing,
+    vacuuming: setTimeVacuuming,
+  }
+
+  function redistributeTimeAcross(activeTasks: CleaningTask[]) {
+    const activeInOrder = TASK_ORDER.filter((t) => activeTasks.includes(t))
+    TASK_ORDER.forEach((t) => {
+      if (!activeInOrder.includes(t)) TIME_SETTERS[t](0)
+    })
+    if (activeInOrder.length === 0) return
+    const base = Math.floor(100 / activeInOrder.length / 5) * 5
+    let remaining = 100
+    activeInOrder.forEach((t, i) => {
+      const isLast = i === activeInOrder.length - 1
+      const value = isLast ? remaining : base
+      TIME_SETTERS[t](value)
+      remaining -= value
+    })
+  }
+
   function toggleTask(t: CleaningTask) {
-    setCleaningTasks(cleaningTasks.includes(t) ? cleaningTasks.filter((x) => x !== t) : [...cleaningTasks, t])
+    const next = cleaningTasks.includes(t) ? cleaningTasks.filter((x) => x !== t) : [...cleaningTasks, t]
+    setCleaningTasks(next)
+    redistributeTimeAcross(next)
   }
   function toggleHazard(h: SpaceHazard) {
     setSpaceHazards(spaceHazards.includes(h) ? spaceHazards.filter((x) => x !== h) : [...spaceHazards, h])
@@ -1159,8 +1188,9 @@ function Step3({
               <span className="text-xs uppercase tracking-wide mb-2 block" style={{ color: TEXT_SECONDARY }}>
                 Required cleaning: check all that apply
               </span>
-              <div className="flex gap-3">
+              <div className="flex gap-3 flex-wrap">
                 <Pill label="Sweeping" selected={cleaningTasks.includes('sweeping')} onClick={() => toggleTask('sweeping')} />
+                <Pill label="Mopping" selected={cleaningTasks.includes('mopping')} onClick={() => toggleTask('mopping')} />
                 <Pill label="Scrubbing" selected={cleaningTasks.includes('scrubbing')} onClick={() => toggleTask('scrubbing')} />
                 <Pill label="Carpet vacuuming" selected={cleaningTasks.includes('vacuuming')} onClick={() => toggleTask('vacuuming')} />
               </div>
@@ -1181,24 +1211,28 @@ function Step3({
               <div className="flex flex-col gap-4">
                 {(
                   [
-                    { label: 'Sweeping', value: timeSweeping, set: setTimeSweeping },
-                    { label: 'Mopping', value: timeMopping, set: setTimeMopping },
-                    { label: 'Scrubbing', value: timeScrubbing, set: setTimeScrubbing },
-                    { label: 'Vacuuming', value: timeVacuuming, set: setTimeVacuuming },
+                    { label: 'Sweeping', task: 'sweeping' as CleaningTask, value: timeSweeping, set: setTimeSweeping },
+                    { label: 'Mopping', task: 'mopping' as CleaningTask, value: timeMopping, set: setTimeMopping },
+                    { label: 'Scrubbing', task: 'scrubbing' as CleaningTask, value: timeScrubbing, set: setTimeScrubbing },
+                    { label: 'Vacuuming', task: 'vacuuming' as CleaningTask, value: timeVacuuming, set: setTimeVacuuming },
                   ] as const
-                ).map((row) => (
-                  <div key={row.label}>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm" style={{ color: TEXT_SECONDARY }}>
-                        {row.label}
-                      </span>
-                      <span className="font-semibold text-sm" style={{ color: GREEN }}>
-                        {row.value}%
-                      </span>
+                ).map((row) => {
+                  const active = cleaningTasks.includes(row.task)
+                  return (
+                    <div key={row.label} style={{ opacity: active ? 1 : 0.4 }}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm" style={{ color: TEXT_SECONDARY }}>
+                          {row.label}
+                          {!active && ' (not checked above)'}
+                        </span>
+                        <span className="font-semibold text-sm" style={{ color: active ? GREEN : TEXT_SECONDARY }}>
+                          {row.value}%
+                        </span>
+                      </div>
+                      <Slider min={0} max={100} step={5} value={row.value} onChange={active ? row.set : () => {}} disabled={!active} />
                     </div>
-                    <Slider min={0} max={100} step={5} value={row.value} onChange={row.set} />
-                  </div>
-                ))}
+                  )
+                })}
               </div>
               <p className="text-xs mt-3" style={{ color: rawCleaningTimeTotal > 100 ? AMBER : TEXT_SECONDARY }}>
                 Total: {rawCleaningTimeTotal}% of team&apos;s time
@@ -1385,21 +1419,19 @@ function Step3({
         </div>
 
         <div className="rounded-xl p-6" style={{ backgroundColor: CARD_BG, border: `1px solid ${CARD_BORDER}` }}>
-          <p className="text-white font-medium mb-4">Annual maintenance</p>
-          <div className="flex gap-3">
-            <Pill
-              label={`Standard: $${MAINTENANCE_COST.standard}/yr`}
-              selected={maintenanceTier === 'standard'}
-              onClick={() => setMaintenanceTier('standard')}
-            />
-            <Pill
-              label={`Heavy duty: $${MAINTENANCE_COST.heavy}/yr`}
-              selected={maintenanceTier === 'heavy'}
-              onClick={() => setMaintenanceTier('heavy')}
-            />
+          <p className="text-white font-medium mb-2">Annual maintenance</p>
+          <div className="flex items-baseline gap-3 mb-1">
+            <span className="font-heading text-white text-2xl font-bold">
+              {maintenanceTier === 'standard' ? 'Standard' : 'Heavy duty'}
+            </span>
+            <span className="text-sm" style={{ color: TEXT_SECONDARY }}>
+              {Math.round(activeUtilization)}% fleet utilization
+            </span>
           </div>
-          <p className="text-xs mt-3" style={{ color: TEXT_SECONDARY }}>
-            Standard covers routine consumables. Heavy duty is for high-cycle or harsh environments.
+          <p className="text-xs" style={{ color: TEXT_SECONDARY }}>
+            {maintenanceTier === 'heavy'
+              ? `Running at ${Math.round(activeUtilization)}% of its own weekly capacity, at or above the 75% threshold, so this defaults to heavy-duty consumables.`
+              : `Running at ${Math.round(activeUtilization)}% of its own weekly capacity, below the 75% threshold, so this defaults to standard consumables.`}
           </p>
         </div>
       </div>
@@ -1851,14 +1883,17 @@ function Slider({
   max,
   step,
   onChange,
+  disabled,
 }: {
   value: number
   min: number
   max: number
   step: number
   onChange: (v: number) => void
+  disabled?: boolean
 }) {
   const pct = ((value - min) / (max - min)) * 100
+  const trackColor = disabled ? 'rgba(255,255,255,0.25)' : GREEN
   return (
     <input
       type="range"
@@ -1866,10 +1901,12 @@ function Slider({
       max={max}
       step={step}
       value={value}
+      disabled={disabled}
       onChange={(e) => onChange(parseFloat(e.target.value))}
       className="rr-slider"
       style={{
-        background: `linear-gradient(to right, ${GREEN} 0%, ${GREEN} ${pct}%, rgba(255,255,255,0.1) ${pct}%, rgba(255,255,255,0.1) 100%)`,
+        background: `linear-gradient(to right, ${trackColor} 0%, ${trackColor} ${pct}%, rgba(255,255,255,0.1) ${pct}%, rgba(255,255,255,0.1) 100%)`,
+        cursor: disabled ? 'not-allowed' : 'pointer',
       }}
     />
   )

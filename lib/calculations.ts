@@ -45,7 +45,7 @@ export type FacilityModel = 'CC1' | 'MT1' | 'MT1 Max' | 'BG1' | 'BG1 Pro'
 export type HandlerModel = 'T300' | 'T600' | 'FOLA'
 export type CleaningFrequency = 'daily' | 'weekly'
 export type MaintenanceTier = 'standard' | 'heavy'
-export type CleaningTask = 'sweeping' | 'scrubbing' | 'vacuuming'
+export type CleaningTask = 'sweeping' | 'mopping' | 'scrubbing' | 'vacuuming'
 export type SpaceHazard = 'forklifts' | 'vehicles'
 
 export const BUY_PRICE_ANCHOR = 24000 // T300 buy-outright anchor, quoted for "all robots"
@@ -54,6 +54,15 @@ export const RAAS_MONTHLY_ANCHOR = 399 // CC1 RaaS entry point, quoted as the un
 export const MAINTENANCE_COST: Record<MaintenanceTier, number> = {
   standard: 500,
   heavy: 1500,
+}
+
+// No longer a manual pick — determined from how hard the recommended fleet
+// is actually working. 75%+ of its own weekly capacity used = heavy duty,
+// otherwise standard.
+export const HEAVY_DUTY_UTILIZATION_THRESHOLD = 75
+
+export function determineMaintenanceTier(utilizationPercent: number): MaintenanceTier {
+  return utilizationPercent >= HEAVY_DUTY_UTILIZATION_THRESHOLD ? 'heavy' : 'standard'
 }
 
 // Johnny's own framing: a robot can run 3x 5-hour shifts in 24 hours = 15
@@ -183,6 +192,9 @@ export interface FacilityRecommendation {
   units: number
   note: string | null
   altOption: FacilityAltOption | null
+  // How close to its own weekly capacity the recommended fleet runs, 0-100+.
+  // Drives the auto maintenance-tier determination (no longer a manual pick).
+  utilizationPercent: number
 }
 
 // Above this many CC1 units, BG1 (real ~4x weekly capacity once its longer
@@ -203,52 +215,63 @@ export function recommendFacilityRobot(
   const hours = Math.max(0, hoursPerShift)
   const shifts = Math.max(0, shiftsPerDay)
   const weeklyCapacity = (ratePerHour: number) => ratePerHour * hours * shifts * 7
-
-  const needsSweep = cleaningTasks.includes('sweeping')
-  // ASSUMPTION: no separate real throughput figure for vacuuming on any of
-  // these models, so it's treated like scrubbing (a thorough wet/detail
-  // pass, not a fast dry sweep) for sizing purposes. Confirm with Johnny.
-  const needsScrubLike = cleaningTasks.includes('scrubbing') || cleaningTasks.includes('vacuuming')
-  const hasHazard = hazards.length > 0
-
-  // Rule 1 (Johnny's explicit priority): hazards route to BG1 Pro
-  // regardless of cleaning type.
-  if (hasHazard) {
-    const units = Math.max(1, Math.ceil(sqftPerWeekNeeded / weeklyCapacity(BG1_SQFT_PER_HOUR)))
-    return {
-      label: 'Recommended',
-      model: 'BG1 Pro',
-      units,
-      note: 'Space has forklifts or moving vehicles. BG1 Pro is built for that (stronger obstacle detection, audible/visual alarms).',
-      altOption: null,
-    }
+  const utilization = (units: number, ratePerHour: number) => {
+    const cap = weeklyCapacity(ratePerHour) * units
+    return cap > 0 ? (sqftPerWeekNeeded / cap) * 100 : 0
   }
 
-  // Rule 2: needs both sweeping and a thorough pass (scrubbing/vacuuming).
-  // This is the real challenge case Johnny flagged: at scale, a single BG1
+  const needsSweep = cleaningTasks.includes('sweeping')
+  // ASSUMPTION: no separate real throughput figure for mopping or vacuuming
+  // on any of these models, so both are treated like scrubbing (a thorough
+  // wet/detail pass, not a fast dry sweep) for sizing purposes. Confirm
+  // with Johnny — he's flagged this area (MT1 vs MT1 Vac vs MT1 Max by
+  // debris size/fineness) as having more real configurations than this
+  // model captures yet.
+  const needsScrubLike =
+    cleaningTasks.includes('scrubbing') || cleaningTasks.includes('mopping') || cleaningTasks.includes('vacuuming')
+  const hasHazard = hazards.length > 0
+
+  // Rule 1: needs both sweeping and a thorough pass (scrubbing/mopping/
+  // vacuuming). Real challenge case Johnny flagged: at scale, a single BG1
   // (one-pass combo) and a split MT1 (fast sweep) + BG1 (thorough scrub)
-  // fleet are both legitimate, so both are shown as real computed options
-  // rather than picking one.
+  // fleet are both legitimate, so both are shown as real computed options.
+  // Hazards upgrade both halves to their obstacle-aware variant.
   if (needsSweep && needsScrubLike) {
+    const bg1Model: FacilityModel = hasHazard ? 'BG1 Pro' : 'BG1'
+    const mt1Model: FacilityModel = hasHazard ? 'MT1 Max' : 'MT1'
+
     const bg1ComboUnits = Math.max(1, Math.ceil(sqftPerWeekNeeded / weeklyCapacity(BG1_SQFT_PER_HOUR)))
     const mt1SplitUnits = Math.max(1, Math.ceil(sqftPerWeekNeeded / weeklyCapacity(MT1_SPOT_SQFT_PER_HOUR)))
     const bg1SplitUnits = Math.max(1, Math.ceil(sqftPerWeekNeeded / weeklyCapacity(BG1_SQFT_PER_HOUR)))
 
     return {
       label: 'Option 1',
-      model: 'BG1',
+      model: bg1Model,
       units: bg1ComboUnits,
       note: 'Sweeps and scrubs in one pass, single-unit coverage.',
       altOption: {
         label: 'Option 2',
-        description: `${mt1SplitUnits}x MT1 (fast debris sweep, spot mode) + ${bg1SplitUnits}x BG1 (thorough scrub, covered mode), run on split shifts. Keeps larger debris clear throughout the day instead of just once per pass, at the cost of running two robot types.`,
+        description: `${mt1SplitUnits}x ${mt1Model} (fast debris sweep, spot mode) + ${bg1SplitUnits}x ${bg1Model} (thorough scrub, covered mode), run on split shifts. Keeps larger debris clear throughout the day instead of just once per pass, at the cost of running two robot types.`,
       },
+      utilizationPercent: utilization(bg1ComboUnits, BG1_SQFT_PER_HOUR),
     }
   }
 
-  // Rule 3: scrubbing (or vacuuming) needed, no sweeping. Existing CC1 to
-  // BG1 escalation by scale.
+  // Rule 2: scrubbing/mopping/vacuuming needed, no sweeping. Hazards route
+  // to BG1 Pro (Johnny's rule: "if it has forklifts... then BG1 Pro").
   if (needsScrubLike && !needsSweep) {
+    if (hasHazard) {
+      const units = Math.max(1, Math.ceil(sqftPerWeekNeeded / weeklyCapacity(BG1_SQFT_PER_HOUR)))
+      return {
+        label: 'Recommended',
+        model: 'BG1 Pro',
+        units,
+        note: 'Space has forklifts or moving vehicles. BG1 Pro is built for that (3D LiDAR obstacle detection).',
+        altOption: null,
+        utilizationPercent: utilization(units, BG1_SQFT_PER_HOUR),
+      }
+    }
+
     const ccUnitsNeeded = Math.max(1, Math.ceil(sqftPerWeekNeeded / weeklyCapacity(CC1_SQFT_PER_HOUR)))
 
     if (ccUnitsNeeded > MAX_REASONABLE_CC1_UNITS) {
@@ -259,21 +282,51 @@ export function recommendFacilityRobot(
         units: bg1Units,
         note: `Roughly equivalent to ${ccUnitsNeeded}x CC1.`,
         altOption: null,
+        utilizationPercent: utilization(bg1Units, BG1_SQFT_PER_HOUR),
       }
     }
 
-    return { label: 'Recommended', model: 'CC1', units: ccUnitsNeeded, note: null, altOption: null }
+    return {
+      label: 'Recommended',
+      model: 'CC1',
+      units: ccUnitsNeeded,
+      note: null,
+      altOption: null,
+      utilizationPercent: utilization(ccUnitsNeeded, CC1_SQFT_PER_HOUR),
+    }
   }
 
-  // Rule 4: sweeping only, no hazard. MT1 using its real Spot Cleaning
-  // Mode rate (fast dry sweep), matching Johnny's own worked example.
+  // Rule 3: sweeping only. MT1 using its real Spot Cleaning Mode rate
+  // (fast dry sweep), matching Johnny's own worked example. Hazard present
+  // upgrades to MT1 Max specifically (not BG1 Pro) — Max is the
+  // sweep-specialist's own obstacle-aware variant, per Johnny's later
+  // clarification, rather than always jumping to the wet-combo unit.
   if (needsSweep && !needsScrubLike) {
+    const model: FacilityModel = hasHazard ? 'MT1 Max' : 'MT1'
     const units = Math.max(1, Math.ceil(sqftPerWeekNeeded / weeklyCapacity(MT1_SPOT_SQFT_PER_HOUR)))
-    return { label: 'Recommended', model: 'MT1', units, note: null, altOption: null }
+    return {
+      label: 'Recommended',
+      model,
+      units,
+      note: hasHazard ? 'Space has forklifts or moving vehicles. MT1 Max detects and routes around them.' : null,
+      altOption: null,
+      utilizationPercent: utilization(units, MT1_SPOT_SQFT_PER_HOUR),
+    }
   }
 
   // Fallback: no specific cleaning task checked yet. Same CC1/BG1
   // escalation as the scrub-only case.
+  if (hasHazard) {
+    const units = Math.max(1, Math.ceil(sqftPerWeekNeeded / weeklyCapacity(BG1_SQFT_PER_HOUR)))
+    return {
+      label: 'Recommended',
+      model: 'BG1 Pro',
+      units,
+      note: 'Space has forklifts or moving vehicles. BG1 Pro is built for that (3D LiDAR obstacle detection).',
+      altOption: null,
+      utilizationPercent: utilization(units, BG1_SQFT_PER_HOUR),
+    }
+  }
   const ccUnitsNeeded = Math.max(1, Math.ceil(sqftPerWeekNeeded / weeklyCapacity(CC1_SQFT_PER_HOUR)))
   if (ccUnitsNeeded > MAX_REASONABLE_CC1_UNITS) {
     const bg1Units = Math.max(1, Math.ceil(sqftPerWeekNeeded / weeklyCapacity(BG1_SQFT_PER_HOUR)))
@@ -283,9 +336,17 @@ export function recommendFacilityRobot(
       units: bg1Units,
       note: `Roughly equivalent to ${ccUnitsNeeded}x CC1.`,
       altOption: null,
+      utilizationPercent: utilization(bg1Units, BG1_SQFT_PER_HOUR),
     }
   }
-  return { label: 'Recommended', model: 'CC1', units: ccUnitsNeeded, note: null, altOption: null }
+  return {
+    label: 'Recommended',
+    model: 'CC1',
+    units: ccUnitsNeeded,
+    note: null,
+    altOption: null,
+    utilizationPercent: utilization(ccUnitsNeeded, CC1_SQFT_PER_HOUR),
+  }
 }
 
 export interface HandlerRecommendation {
@@ -293,6 +354,7 @@ export interface HandlerRecommendation {
   units: number
   cycleTime: { requiredTripsPerDay: number; achievableTripsPerUnit: number }
   note: string | null
+  utilizationPercent: number
 }
 
 export function recommendHandlerRobot(params: {
@@ -338,6 +400,9 @@ export function recommendHandlerRobot(params: {
       ? Math.max(1, Math.ceil(tripsPerDay / achievableTripsPerUnit))
       : 1
 
+  const fleetCapacity = achievableTripsPerUnit * units
+  const utilizationPercent = fleetCapacity > 0 ? (tripsPerDay / fleetCapacity) * 100 : 0
+
   return {
     model,
     units,
@@ -346,6 +411,7 @@ export function recommendHandlerRobot(params: {
       achievableTripsPerUnit: Math.round(achievableTripsPerUnit),
     },
     note,
+    utilizationPercent,
   }
 }
 
